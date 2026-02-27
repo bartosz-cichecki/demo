@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=../vendor/symfony/dependency-injection/Loader/schema/services.schema.json
+
+imports:
+    - { resource: './services.autoload.yaml' }
+    - { resource: '../src/SharedKernel/Infrastructure/Resource/config.yaml' }
+    - { resource: '../src/Client/Infrastructure/Resource/config.yaml' }
+    - { resource: '../src/User/Infrastructure/Resource/config.yaml' }

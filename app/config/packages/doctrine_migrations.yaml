@@ -1,0 +1,6 @@
+doctrine_migrations:
+    migrations_paths:
+        'App\Client\Infrastructure\Resource\Migrations': '%kernel.project_dir%/src/Client/Infrastructure/Resource/Migrations'
+        'App\SharedKernel\Infrastructure\Resource\Migrations': '%kernel.project_dir%/src/SharedKernel/Infrastructure/Resource/Migrations'
+        'App\User\Infrastructure\Resource\Migrations': '%kernel.project_dir%/src/User/Infrastructure/Resource/Migrations'
+    enable_profiler: false

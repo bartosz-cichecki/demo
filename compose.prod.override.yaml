@@ -1,0 +1,12 @@
+services:
+  php:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile.prod
+
+  nginx:
+    ports:
+      - "8081:80"
+    volumes:
+      - ./app:/var/www/app:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro

@@ -1,0 +1,33 @@
+default:
+    suites:
+        platform:
+            paths:
+                - "%paths.base%/tests/Behat/features/platform"
+            contexts:
+                - App\Tests\Behat\Support\Fixture\FixtureContext
+                - App\Tests\Behat\Platform\PlatformClientContext
+        tenant:
+            paths:
+                - "%paths.base%/tests/Behat/features/tenant"
+            contexts:
+                - App\Tests\Behat\Support\Fixture\FixtureContext
+                - App\Tests\Behat\Tenant\TenantClientContext
+        user:
+            paths:
+                - "%paths.base%/tests/Behat/features/user"
+            contexts:
+                - App\Tests\Behat\Support\Fixture\FixtureContext
+                - App\Tests\Behat\User\UserContext
+        client_member:
+            paths:
+                - "%paths.base%/tests/Behat/features/client_member"
+            contexts:
+                - App\Tests\Behat\Support\Fixture\FixtureContext
+                - App\Tests\Behat\ClientMember\ClientMemberContext
+
+    extensions:
+        FriendsOfBehat\SymfonyExtension:
+            bootstrap: '%paths.base%/tests/bootstrap.php'
+            kernel:
+                environment: test
+                debug: true

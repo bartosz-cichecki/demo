@@ -1,0 +1,10 @@
+parameters:
+    level: max
+    paths:
+        - src
+        - tests
+    tmpDir: var/cache/phpstan
+    ignoreErrors:
+        -
+            identifier: property.onlyWritten
+            message: '#^Property App\\.*\\Domain\\.* is never read, only written\.$#'

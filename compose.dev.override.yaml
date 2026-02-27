@@ -1,0 +1,18 @@
+services:
+  php:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile.dev
+    volumes:
+      - ./app:/var/www/app
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  nginx:
+    ports:
+      - "8080:80"
+    volumes:
+      - ./app:/var/www/app:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro

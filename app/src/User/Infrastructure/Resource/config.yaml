@@ -1,0 +1,15 @@
+doctrine:
+    orm:
+        mappings:
+            User:
+                type: attribute
+                is_bundle: false
+                dir: '%kernel.project_dir%/src/User/Domain/User'
+                prefix: 'App\User\Domain\User'
+                alias: User
+            OtpChallenge:
+                type: attribute
+                is_bundle: false
+                dir: '%kernel.project_dir%/src/User/Domain/OtpChallenge'
+                prefix: 'App\User\Domain\OtpChallenge'
+                alias: OtpChallenge

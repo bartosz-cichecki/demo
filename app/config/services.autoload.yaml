@@ -1,0 +1,75 @@
+# yaml-language-server: $schema=../vendor/symfony/dependency-injection/Loader/schema/services.schema.json
+
+parameters:
+    app.platform_admin_emails: []
+
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    # === Resource-based service registration (convention over configuration) ===
+
+    # Controllers: src/*/Ui/Http/**/*
+    http_controllers:
+        namespace: App\
+        resource: '../src/*/Ui/Http/'
+        exclude: '../src/*/Ui/Http/Exception/'
+        tags: ['controller.service_arguments']
+
+    factories:
+        namespace: App\
+        resource: '../src/**/*Factory.php'
+    factory_aliases:
+        namespace: App\
+        resource: '../src/**/*FactoryInterface.php'
+
+    repositories:
+        namespace: App\
+        resource: '../src/**/*Repository.php'
+    repository_aliases:
+        namespace: App\
+        resource: '../src/**/*RepositoryInterface.php'
+
+    queries:
+        namespace: App\
+        resource: '../src/**/*Query.php'
+    query_aliases:
+        namespace: App\
+        resource: '../src/**/*QueryInterface.php'
+
+    outsides:
+        namespace: App\
+        resource: '../src/**/*Outside.php'
+        tags: ['app.outside']
+    outside_aliases:
+        namespace: App\
+        resource: '../src/**/*OutsideInterface.php'
+
+    command_handlers:
+        namespace: App\
+        resource: '../src/*/Application/**/Command/**/*Handler.php'
+        tags: ['app.command_handler']
+
+    sagas:
+        namespace: App\
+        resource: '../src/*/Application/**/Saga/*Saga.php'
+        tags: ['app.saga']
+
+    services:
+        namespace: App\
+        resource: '../src/**/*Service.php'
+    service_aliases:
+        namespace: App\
+        resource: '../src/**/*ServiceInterface.php'
+
+    # Infrastructure: src/*/Infrastructure/**/*.php
+    infrastructure_services:
+        namespace: App\
+        resource: '../src/*/Infrastructure/**/*.php'
+        exclude:
+            - '../src/*/Infrastructure/{Persistence,Resource}/**'
+            - '../src/**/*Outside.php'
+
+# Verify autowiring: bin/console debug:autowiring <Interface>
+# Check service:     bin/console debug:container <Implementation>

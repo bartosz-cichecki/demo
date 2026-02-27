@@ -1,0 +1,21 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\User\Application\User\Command\UnblockUser;
+
+use App\User\Domain\User\Repository\UserRepositoryInterface;
+
+final readonly class UnblockUserCommandHandler
+{
+    public function __construct(
+        private UserRepositoryInterface $userRepository,
+    ) {
+    }
+
+    public function __invoke(UnblockUserCommand $command): void
+    {
+        $user = $this->userRepository->get($command->id);
+        $user->unblock();
+    }
+}

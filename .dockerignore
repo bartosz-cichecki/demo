@@ -1,0 +1,13 @@
+.git
+.idea
+.vscode
+vendor
+var
+app/var/cache
+app/var/log
+app/vendor
+node_modules
+*.log
+*.md
+.env.local
+.env.*.local

@@ -1,0 +1,15 @@
+doctrine:
+    orm:
+        mappings:
+            Client:
+                type: attribute
+                is_bundle: false
+                dir: '%kernel.project_dir%/src/Client/Domain/Client'
+                prefix: 'App\Client\Domain\Client'
+                alias: Client
+            ClientMember:
+                type: attribute
+                is_bundle: false
+                dir: '%kernel.project_dir%/src/Client/Domain/ClientMember'
+                prefix: 'App\Client\Domain\ClientMember'
+                alias: ClientMember

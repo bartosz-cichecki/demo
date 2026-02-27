@@ -1,0 +1,19 @@
+services:
+    _defaults:
+        autowire: true
+
+    # CommandBus needs tagged_locator for handlers
+    App\SharedKernel\Infrastructure\CommandBus\CommandBus:
+        arguments:
+            $handlers: !tagged_locator { tag: 'app.command_handler' }
+    App\SharedKernel\Application\CommandBus\CommandBusInterface: '@App\SharedKernel\Infrastructure\CommandBus\CommandBus'
+    App\SharedKernel\Infrastructure\EventBus\EventBus:
+        arguments:
+            $sagas: !tagged_iterator { tag: 'app.saga' }
+    App\SharedKernel\Application\EventBus\EventBusInterface: '@App\SharedKernel\Infrastructure\EventBus\EventBus'
+    App\SharedKernel\Application\EventLog\EventLogInterface: '@App\SharedKernel\Infrastructure\EventLog\EventLog'
+
+    # SharedKernel: one implementation, two interfaces
+    App\SharedKernel\Domain\Event\InMemoryDomainEventsCollector: ~
+    App\SharedKernel\Domain\Event\DomainEventsBuffer: '@App\SharedKernel\Domain\Event\InMemoryDomainEventsCollector'
+    App\SharedKernel\Domain\Event\DomainEventsRecorder: '@App\SharedKernel\Domain\Event\InMemoryDomainEventsCollector'

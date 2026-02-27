@@ -1,0 +1,4 @@
+api_controllers:
+    resource: ../src/**/Ui/Http/Api/**/*Controller.php
+    type: attribute
+    prefix: /api

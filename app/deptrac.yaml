@@ -1,0 +1,78 @@
+deptrac:
+  paths:
+    - src
+  exclude_files:
+    - '#src/Kernel\.php#'
+  layers:
+    - name: SharedKernelDomainValueObject
+      collectors:
+        - type: directory
+          value: src/SharedKernel/Domain/ValueObject/.*
+    - name: SharedKernelDomainCore
+      collectors:
+        - type: directory
+          value: src/SharedKernel/Domain/(?!ValueObject/).*
+    - name: Ui
+      collectors:
+        - type: directory
+          value: src/.*/Ui/.*
+    - name: Application
+      collectors:
+        - type: directory
+          value: src/.*/Application/.*
+    - name: Domain
+      collectors:
+        - type: directory
+          value: src/(?!SharedKernel/Domain/).*/Domain/.*
+    - name: Infrastructure
+      collectors:
+        - type: directory
+          value: src/.*/Infrastructure/.*
+    - name: DoctrineMapping
+      collectors:
+        - type: classNameRegex
+          value: '#^Doctrine\\ORM\\Mapping\\#'
+    - name: External
+      collectors:
+        - type: classNameRegex
+          value: '#^Symfony\\#'
+        - type: classNameRegex
+          value: '#^Doctrine\\(?!ORM\\Mapping\\)#'
+        - type: classNameRegex
+          value: '#^Psr\\#'
+        - type: classNameRegex
+          value: '#^Monolog\\#'
+        - type: classNameRegex
+          value: '#^Twig\\#'
+    - name: UuidVendor
+      collectors:
+         - type: classNameRegex
+           value: '#^Ramsey\\Uuid\\#'
+  ruleset:
+    SharedKernelDomainCore: ~
+    SharedKernelDomainValueObject:
+      - SharedKernelDomainCore
+      - UuidVendor
+    Ui:
+      - Application
+      - Domain
+      - External
+      - SharedKernelDomainCore
+      - SharedKernelDomainValueObject
+    Application:
+      - Domain
+      - SharedKernelDomainCore
+      - SharedKernelDomainValueObject
+    Domain:
+      - SharedKernelDomainCore
+      - SharedKernelDomainValueObject
+      - DoctrineMapping
+    Infrastructure:
+      - Application
+      - Domain
+      - External
+      - SharedKernelDomainCore
+      - SharedKernelDomainValueObject
+    External: ~
+    DoctrineMapping: ~
+    UuidVendor: ~

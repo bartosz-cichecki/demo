@@ -1,0 +1,15 @@
+parameters:
+    app.platform_admin_emails: ['admin@example.com']
+
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    # Behat contexts - FriendsOfBehat will inject dependencies
+    App\Tests\Behat\:
+        resource: '../tests/Behat/*'
+
+    # Deterministic OTP code for test environment
+    App\Tests\User\Infrastructure\OtpChallenge\DeterministicCodeOtpChallengeOutside:
+        decorates: App\User\Infrastructure\OtpChallenge\OtpChallengeOutside
