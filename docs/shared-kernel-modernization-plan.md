@@ -68,10 +68,11 @@ Ten plan opisuje wyłącznie mechanizmy techniczne. Nie zakłada nowego kontekst
    - zaktualizować Deptrac o warstwę clocka.
    - Status: dodano `ClockInterface`, `SystemClock` i `MutableClock`; `DateTime` VO normalizuje czas do UTC; typ Doctrine odczytuje i zapisuje UTC storage string; PHP runtime ma `date.timezone=UTC`; Deptrac ma warstwę dla clocka; testy oraz quality gates przeszły.
 
-2. Baseline konfiguracji i reguł
+2. Baseline konfiguracji i reguł ✅ DONE
    - dodać neutralne konwencje autoload dla console commands i async subscriberów,
    - rozważyć wydzielenie kontraktów PSR w Deptrac,
    - utrzymać istniejące quality gates bez poszerzania zakresu funkcjonalnego.
+   - Status: dodano neutralny autoload dla `src/*/Ui/ConsoleCommands/*Command.php`; dodano konwencję DI i tag `app.integration_event_subscriber` dla przyszłych `src/*/Application/IntegrationEventSubscriber/*Subscriber.php`; w Deptrac wydzielono `PsrContracts` z `External` i dopuszczono wyłącznie w aktualnie potrzebnych warstwach.
 
 3. Integration event i outbox publisher
    - dodać kontrakty integracyjne,
