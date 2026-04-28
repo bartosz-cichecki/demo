@@ -81,10 +81,11 @@ Ten plan opisuje wyłącznie mechanizmy techniczne. Nie zakłada nowego kontekst
    - pokryć publisher testem integracyjnym.
    - Status: dodano neutralny kontrakt `IntegrationEvent`, `IntegrationEventPublisherInterface` oraz `DbalOutboxPublisher`; publisher zapisuje pojedyncze zdarzenie do `shared.async_outbox` bez dispatchu, zapisuje payload JSON i `created_at` jako UTC storage string z `ClockInterface`; migracja tworzy `shared.async_outbox` oraz `shared.async_consumption`; test integracyjny sprawdza payload, nazwę eventu, UTC timestamp i stan pending.
 
-4. Worker async outbox
+4. Worker async outbox ✅ DONE
    - dodać CLI worker,
    - obsłużyć claim batch, retry, ownership check i idempotency,
    - dodać neutralne testy dispatchu, błędu i ponownego przetwarzania.
+   - Status: dodano neutralną komendę `app:process-outbox`; worker atomowo claimuje pending batch z lease TTL i limitem prób, denormalizuje `IntegrationEvent`, wykonuje pasujące tagowane async subscribery, stosuje `shared.async_consumption` dla idempotency per subscriber method, zapisuje skrócony błąd i zwalnia claim do retry oraz oznacza outbox jako processed wyłącznie przy zachowanym ownership; testy pokrywają claim batch, handler, idempotency, brak handlerów, retry po błędzie, pomijanie processed eventów i ownership check.
 
 5. Dokumentacja architektury
    - opisać UTC, clock, integration events, outbox i async consumption,
