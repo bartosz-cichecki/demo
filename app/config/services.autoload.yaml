@@ -51,10 +51,19 @@ services:
         resource: '../src/*/Application/**/Command/**/*Handler.php'
         tags: ['app.command_handler']
 
+    console_commands:
+        namespace: App\
+        resource: '../src/*/Ui/ConsoleCommands/*Command.php'
+
     sagas:
         namespace: App\
         resource: '../src/*/Application/**/Saga/*Saga.php'
         tags: ['app.saga']
+
+    integration_event_subscribers:
+        namespace: App\
+        resource: '../src/*/Application/IntegrationEventSubscriber/*Subscriber.php'
+        tags: ['app.integration_event_subscriber']
 
     services:
         namespace: App\

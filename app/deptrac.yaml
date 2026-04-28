@@ -43,11 +43,13 @@ deptrac:
         - type: classNameRegex
           value: '#^Doctrine\\(?!ORM\\Mapping\\)#'
         - type: classNameRegex
-          value: '#^Psr\\#'
-        - type: classNameRegex
           value: '#^Monolog\\#'
         - type: classNameRegex
           value: '#^Twig\\#'
+    - name: PsrContracts
+      collectors:
+        - type: classNameRegex
+          value: '#^Psr\\#'
     - name: UuidVendor
       collectors:
          - type: classNameRegex
@@ -64,6 +66,7 @@ deptrac:
       - Application
       - Domain
       - External
+      - PsrContracts
       - SharedKernelDomainClock
       - SharedKernelDomainCore
       - SharedKernelDomainValueObject
@@ -81,9 +84,11 @@ deptrac:
       - Application
       - Domain
       - External
+      - PsrContracts
       - SharedKernelDomainClock
       - SharedKernelDomainCore
       - SharedKernelDomainValueObject
     External: ~
+    PsrContracts: ~
     DoctrineMapping: ~
     UuidVendor: ~
