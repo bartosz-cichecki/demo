@@ -60,12 +60,13 @@ Ten plan opisuje wyłącznie mechanizmy techniczne. Nie zakłada nowego kontekst
 
 ## Proponowana kolejność slice'ów
 
-1. Clock i UTC
+1. Clock i UTC ✅ DONE
    - dodać wspólny clock,
    - znormalizować value object czasu i typ Doctrine,
    - ustawić PHP timezone na UTC,
    - dodać testy niezależności od lokalnej strefy czasu,
    - zaktualizować Deptrac o warstwę clocka.
+   - Status: dodano `ClockInterface`, `SystemClock` i `MutableClock`; `DateTime` VO normalizuje czas do UTC; typ Doctrine odczytuje i zapisuje UTC storage string; PHP runtime ma `date.timezone=UTC`; Deptrac ma warstwę dla clocka; testy oraz quality gates przeszły.
 
 2. Baseline konfiguracji i reguł
    - dodać neutralne konwencje autoload dla console commands i async subscriberów,
@@ -92,6 +93,8 @@ Ten plan opisuje wyłącznie mechanizmy techniczne. Nie zakłada nowego kontekst
    - potraktować pinning obrazów Docker jako osobny maintenance slice,
    - nie mieszać pinningu obrazów z wdrożeniem UTC,
    - aktualizować Composer tylko wtedy, gdy wynika to z potrzeb nowych mechanizmów albo quality gates.
+
+Po każdym zakończonym slice aktualizujemy status w tym dokumencie. Plan ma pokazywać aktualny stan prac, nie tylko pierwotne założenia.
 
 ## Ryzyka
 

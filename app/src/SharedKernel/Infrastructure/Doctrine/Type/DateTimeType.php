@@ -29,7 +29,7 @@ final class DateTimeType extends Type
 
         \assert(\is_string($value));
 
-        return new DateTime(new \DateTimeImmutable($value));
+        return DateTime::fromStorageString($value);
     }
 
     public function convertToDatabaseValue(mixed $value, AbstractPlatform $platform): ?string
@@ -38,9 +38,13 @@ final class DateTimeType extends Type
             return null;
         }
 
+        if ($value instanceof \DateTimeImmutable) {
+            $value = new DateTime($value);
+        }
+
         \assert($value instanceof DateTime);
 
-        return $value->value->format('Y-m-d H:i:s');
+        return $value->toStorageString();
     }
 
     public function getName(): string

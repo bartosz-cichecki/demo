@@ -4,6 +4,10 @@ deptrac:
   exclude_files:
     - '#src/Kernel\.php#'
   layers:
+    - name: SharedKernelDomainClock
+      collectors:
+        - type: directory
+          value: src/SharedKernel/Domain/Clock/.*
     - name: SharedKernelDomainValueObject
       collectors:
         - type: directory
@@ -11,7 +15,7 @@ deptrac:
     - name: SharedKernelDomainCore
       collectors:
         - type: directory
-          value: src/SharedKernel/Domain/(?!ValueObject/).*
+          value: src/SharedKernel/Domain/(?!(Clock|ValueObject)/).*
     - name: Ui
       collectors:
         - type: directory
@@ -49,7 +53,10 @@ deptrac:
          - type: classNameRegex
            value: '#^Ramsey\\Uuid\\#'
   ruleset:
-    SharedKernelDomainCore: ~
+    SharedKernelDomainClock:
+      - SharedKernelDomainValueObject
+    SharedKernelDomainCore:
+      - SharedKernelDomainClock
     SharedKernelDomainValueObject:
       - SharedKernelDomainCore
       - UuidVendor
@@ -57,13 +64,16 @@ deptrac:
       - Application
       - Domain
       - External
+      - SharedKernelDomainClock
       - SharedKernelDomainCore
       - SharedKernelDomainValueObject
     Application:
       - Domain
+      - SharedKernelDomainClock
       - SharedKernelDomainCore
       - SharedKernelDomainValueObject
     Domain:
+      - SharedKernelDomainClock
       - SharedKernelDomainCore
       - SharedKernelDomainValueObject
       - DoctrineMapping
@@ -71,6 +81,7 @@ deptrac:
       - Application
       - Domain
       - External
+      - SharedKernelDomainClock
       - SharedKernelDomainCore
       - SharedKernelDomainValueObject
     External: ~
