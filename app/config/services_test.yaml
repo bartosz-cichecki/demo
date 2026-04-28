@@ -8,6 +8,9 @@ services:
 
     App\SharedKernel\Domain\Clock\MutableClock:
         public: true
+    App\SharedKernel\Domain\Clock\ClockInterface:
+        alias: App\SharedKernel\Domain\Clock\MutableClock
+        public: true
     App\SharedKernel\Infrastructure\IntegrationEvent\DbalOutboxPublisher:
         arguments:
             $clock: '@App\SharedKernel\Domain\Clock\MutableClock'

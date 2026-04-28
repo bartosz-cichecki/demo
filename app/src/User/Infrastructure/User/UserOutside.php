@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\User\Infrastructure\User;
 
+use App\SharedKernel\Domain\Clock\ClockInterface;
 use App\SharedKernel\Domain\Event\DomainEvent;
 use App\SharedKernel\Domain\Event\DomainEventsRecorder;
 use App\SharedKernel\Domain\ValueObject\DateTime;
@@ -15,12 +16,13 @@ final readonly class UserOutside implements UserOutsideInterface
 {
     public function __construct(
         private DomainEventsRecorder $domainEventsRecorder,
+        private ClockInterface $clock,
     ) {
     }
 
     public function now(): DateTime
     {
-        return DateTime::now();
+        return $this->clock->now();
     }
 
     public function record(DomainEvent $event): void
