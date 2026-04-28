@@ -12,6 +12,7 @@ services:
             $sagas: !tagged_iterator { tag: 'app.saga' }
     App\SharedKernel\Application\EventBus\EventBusInterface: '@App\SharedKernel\Infrastructure\EventBus\EventBus'
     App\SharedKernel\Application\EventLog\EventLogInterface: '@App\SharedKernel\Infrastructure\EventLog\EventLog'
+    App\SharedKernel\Application\IntegrationEvent\IntegrationEventPublisherInterface: '@App\SharedKernel\Infrastructure\IntegrationEvent\DbalOutboxPublisher'
     App\SharedKernel\Domain\Clock\SystemClock: ~
     App\SharedKernel\Domain\Clock\ClockInterface: '@App\SharedKernel\Domain\Clock\SystemClock'
 

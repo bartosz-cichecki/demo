@@ -74,11 +74,12 @@ Ten plan opisuje wyłącznie mechanizmy techniczne. Nie zakłada nowego kontekst
    - utrzymać istniejące quality gates bez poszerzania zakresu funkcjonalnego.
    - Status: dodano neutralny autoload dla `src/*/Ui/ConsoleCommands/*Command.php`; dodano konwencję DI i tag `app.integration_event_subscriber` dla przyszłych `src/*/Application/IntegrationEventSubscriber/*Subscriber.php`; w Deptrac wydzielono `PsrContracts` z `External` i dopuszczono wyłącznie w aktualnie potrzebnych warstwach.
 
-3. Integration event i outbox publisher
+3. Integration event i outbox publisher ✅ DONE
    - dodać kontrakty integracyjne,
    - dodać publisher do `shared.async_outbox`,
    - dodać migrację tabel technicznych,
    - pokryć publisher testem integracyjnym.
+   - Status: dodano neutralny kontrakt `IntegrationEvent`, `IntegrationEventPublisherInterface` oraz `DbalOutboxPublisher`; publisher zapisuje pojedyncze zdarzenie do `shared.async_outbox` bez dispatchu, zapisuje payload JSON i `created_at` jako UTC storage string z `ClockInterface`; migracja tworzy `shared.async_outbox` oraz `shared.async_consumption`; test integracyjny sprawdza payload, nazwę eventu, UTC timestamp i stan pending.
 
 4. Worker async outbox
    - dodać CLI worker,

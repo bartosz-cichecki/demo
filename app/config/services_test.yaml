@@ -6,6 +6,15 @@ services:
         autowire: true
         autoconfigure: true
 
+    App\SharedKernel\Domain\Clock\MutableClock:
+        public: true
+    App\SharedKernel\Infrastructure\IntegrationEvent\DbalOutboxPublisher:
+        arguments:
+            $clock: '@App\SharedKernel\Domain\Clock\MutableClock'
+    App\SharedKernel\Application\IntegrationEvent\IntegrationEventPublisherInterface:
+        alias: App\SharedKernel\Infrastructure\IntegrationEvent\DbalOutboxPublisher
+        public: true
+
     # Behat contexts - FriendsOfBehat will inject dependencies
     App\Tests\Behat\:
         resource: '../tests/Behat/*'
