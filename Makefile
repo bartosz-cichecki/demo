@@ -5,6 +5,7 @@
 
 COMPOSE_DEV = docker compose -p demo-dev -f compose.yaml -f compose.dev.override.yaml
 COMPOSE_PROD = docker compose -p demo-prod -f compose.yaml -f compose.prod.override.yaml
+DEMO_HTTP_PORT ?= 8082
 
 DOCKER_COMPOSE = $(COMPOSE_DEV)
 PHP_CONTAINER = php
@@ -43,13 +44,13 @@ deptrac-ci: ## Run Deptrac (CI mode, fails on uncovered)
 
 smoke: ## Smoke tests (console about + health endpoints)
 	$(EXEC_PHP) sh -lc 'cd /var/www/app && php bin/console about'
-	@curl -fsS http://localhost:8080/health >/dev/null && echo "OK /health"
-	@curl -fsS http://localhost:8080/api/health >/dev/null && echo "OK /api/health"
+	@curl -fsS http://localhost:$(DEMO_HTTP_PORT)/health >/dev/null && echo "OK /health"
+	@curl -fsS http://localhost:$(DEMO_HTTP_PORT)/api/health >/dev/null && echo "OK /api/health"
 
 health: ## Check health endpoints only
-	@curl -i http://localhost:8080/health
+	@curl -i http://localhost:$(DEMO_HTTP_PORT)/health
 	@echo
-	@curl -i http://localhost:8080/api/health
+	@curl -i http://localhost:$(DEMO_HTTP_PORT)/api/health
 
 logs: ## Tail logs
 	$(DOCKER_COMPOSE) logs -f
