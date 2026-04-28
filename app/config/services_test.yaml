@@ -15,6 +15,10 @@ services:
         alias: App\SharedKernel\Infrastructure\IntegrationEvent\DbalOutboxPublisher
         public: true
 
+    App\Tests\SharedKernel\Ui\ConsoleCommands\Fixtures\:
+        resource: '../tests/SharedKernel/Ui/ConsoleCommands/Fixtures/*IntegrationEventSubscriber.php'
+        tags: ['app.integration_event_subscriber']
+
     # Behat contexts - FriendsOfBehat will inject dependencies
     App\Tests\Behat\:
         resource: '../tests/Behat/*'
