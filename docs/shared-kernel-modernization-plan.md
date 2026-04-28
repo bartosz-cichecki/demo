@@ -66,7 +66,7 @@ Ten plan opisuje wyłącznie mechanizmy techniczne. Nie zakłada nowego kontekst
    - ustawić PHP timezone na UTC,
    - dodać testy niezależności od lokalnej strefy czasu,
    - zaktualizować Deptrac o warstwę clocka.
-   - Status: dodano `ClockInterface`, `SystemClock` i `MutableClock`; `DateTime` VO normalizuje czas do UTC; typ Doctrine odczytuje i zapisuje UTC storage string; PHP runtime ma `date.timezone=UTC`; Deptrac ma warstwę dla clocka; testy oraz quality gates przeszły.
+   - Status: dodano `ClockInterface`, `SystemClock` i `MutableClock`; `DateTime` VO normalizuje czas do UTC; typ Doctrine odczytuje i zapisuje UTC storage string; produkcyjne Outside oraz techniczny EventLog korzystają z `ClockInterface`; PHP runtime ma `date.timezone=UTC`; Deptrac ma warstwę dla clocka; testy oraz quality gates przeszły.
 
 2. Baseline konfiguracji i reguł ✅ DONE
    - dodać neutralne konwencje autoload dla console commands i async subscriberów,
@@ -87,10 +87,11 @@ Ten plan opisuje wyłącznie mechanizmy techniczne. Nie zakłada nowego kontekst
    - dodać neutralne testy dispatchu, błędu i ponownego przetwarzania.
    - Status: dodano neutralną komendę `app:process-outbox`; worker atomowo claimuje pending batch z lease TTL i limitem prób, denormalizuje `IntegrationEvent`, wykonuje pasujące tagowane async subscribery, stosuje `shared.async_consumption` dla idempotency per subscriber method, zapisuje skrócony błąd i zwalnia claim do retry oraz oznacza outbox jako processed wyłącznie przy zachowanym ownership; testy pokrywają claim batch, handler, idempotency, brak handlerów, retry po błędzie, pomijanie processed eventów i ownership check.
 
-5. Dokumentacja architektury
+5. Dokumentacja architektury ✅ DONE
    - opisać UTC, clock, integration events, outbox i async consumption,
    - zachować neutralne nazwy i przykłady,
    - nie dokumentować pochodzenia zmian.
+   - Status: zweryfikowano i uzupełniono `docs/architecture.md` o faktyczny stan UTC/storage timestampów, użycie `ClockInterface`, reguły Outside/time, rozdział `DomainEvent` vs `IntegrationEvent`, outbox publisher, worker `app:process-outbox`, async consumption, idempotency, retry oraz ownership check. W trakcie weryfikacji domknięto brakujące użycie clocka w produkcyjnych Outside i EventLog. Wykorzystano neutralne wnioski architektoniczne z projektu referencyjnego bez przenoszenia domeny, flow ani nazw.
 
 6. Docker i Composer baseline
    - potraktować pinning obrazów Docker jako osobny maintenance slice,
