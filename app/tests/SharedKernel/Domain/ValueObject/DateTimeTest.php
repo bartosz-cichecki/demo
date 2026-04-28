@@ -11,23 +11,65 @@ final class DateTimeTest extends TestCase
 {
     public function testCanBeCreatedFromDateTimeImmutable(): void
     {
-        // Given: a DateTimeImmutable
-        $inner = new \DateTimeImmutable('2024-01-15 10:30:00');
+        $inner = new \DateTimeImmutable('2024-01-15 10:30:00', new \DateTimeZone('UTC'));
 
-        // When: creating DateTime
         $dateTime = new DateTime($inner);
 
-        // Then: value is preserved
         $this->assertSame($inner, $dateTime->value);
     }
 
     public function testNowReturnsInstance(): void
     {
-        // When: calling now()
         $dateTime = DateTime::now();
 
-        // Then: returns DateTime with current time
         $this->assertInstanceOf(DateTime::class, $dateTime);
         $this->assertInstanceOf(\DateTimeImmutable::class, $dateTime->value);
+        $this->assertSame('UTC', $dateTime->value->getTimezone()->getName());
+    }
+
+    public function testNowIsIndependentFromDefaultTimezone(): void
+    {
+        $previousTimezone = date_default_timezone_get();
+        date_default_timezone_set('Europe/Warsaw');
+
+        try {
+            $dateTime = DateTime::now();
+        } finally {
+            date_default_timezone_set($previousTimezone);
+        }
+
+        $this->assertSame('UTC', $dateTime->value->getTimezone()->getName());
+    }
+
+    public function testStorageStringWithoutTimezoneIsInterpretedAsUtc(): void
+    {
+        $previousTimezone = date_default_timezone_get();
+        date_default_timezone_set('Europe/Warsaw');
+
+        try {
+            $dateTime = DateTime::fromStorageString('2024-01-15 10:30:00');
+        } finally {
+            date_default_timezone_set($previousTimezone);
+        }
+
+        $this->assertSame('2024-01-15 10:30:00', $dateTime->toStorageString());
+        $this->assertSame('UTC', $dateTime->value->getTimezone()->getName());
+    }
+
+    public function testInputWithDifferentTimezoneIsNormalizedToUtc(): void
+    {
+        $inner = new \DateTimeImmutable('2024-01-15 10:30:00', new \DateTimeZone('Europe/Warsaw'));
+
+        $dateTime = new DateTime($inner);
+
+        $this->assertSame('2024-01-15 09:30:00', $dateTime->toStorageString());
+        $this->assertSame('UTC', $dateTime->value->getTimezone()->getName());
+    }
+
+    public function testStorageStringWithTimezoneIsNormalizedToUtc(): void
+    {
+        $dateTime = DateTime::fromStorageString('2024-01-15T10:30:00+01:00');
+
+        $this->assertSame('2024-01-15 09:30:00', $dateTime->toStorageString());
     }
 }
