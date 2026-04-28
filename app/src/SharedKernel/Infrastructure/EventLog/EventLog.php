@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\SharedKernel\Infrastructure\EventLog;
 
 use App\SharedKernel\Application\EventLog\EventLogInterface;
+use App\SharedKernel\Domain\Clock\ClockInterface;
 use App\SharedKernel\Domain\Event\DomainEvent;
 use App\SharedKernel\Domain\ValueObject\Id;
 use Doctrine\DBAL\Connection;
@@ -16,6 +17,7 @@ final readonly class EventLog implements EventLogInterface
     public function __construct(
         private Connection $connection,
         private NormalizerInterface $normalizer,
+        private ClockInterface $clock,
     ) {
     }
 
@@ -31,13 +33,13 @@ final readonly class EventLog implements EventLogInterface
             [
                 'event_id' => (string) Id::new(),
                 'event_name' => $event::class,
-                'occurred_at' => new \DateTimeImmutable('now', new \DateTimeZone('UTC')),
+                'occurred_at' => $this->clock->now()->toStorageString(),
                 'payload' => $payload,
             ],
             [
                 'event_id' => Types::GUID,
                 'event_name' => Types::STRING,
-                'occurred_at' => Types::DATETIME_IMMUTABLE,
+                'occurred_at' => Types::STRING,
                 'payload' => Types::JSON,
             ],
         );
