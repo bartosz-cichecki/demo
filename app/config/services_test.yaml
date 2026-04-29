@@ -7,16 +7,13 @@ services:
         autoconfigure: true
 
     App\SharedKernel\Domain\Clock\MutableClock:
-        public: true
     App\SharedKernel\Domain\Clock\ClockInterface:
         alias: App\SharedKernel\Domain\Clock\MutableClock
-        public: true
     App\SharedKernel\Infrastructure\IntegrationEvent\DbalOutboxPublisher:
         arguments:
             $clock: '@App\SharedKernel\Domain\Clock\MutableClock'
     App\SharedKernel\Application\IntegrationEvent\IntegrationEventPublisherInterface:
         alias: App\SharedKernel\Infrastructure\IntegrationEvent\DbalOutboxPublisher
-        public: true
 
     App\Tests\SharedKernel\Ui\ConsoleCommands\Fixtures\:
         resource: '../tests/SharedKernel/Ui/ConsoleCommands/Fixtures/*IntegrationEventSubscriber.php'
@@ -25,6 +22,8 @@ services:
     # Behat contexts - FriendsOfBehat will inject dependencies
     App\Tests\Behat\:
         resource: '../tests/Behat/*'
+        bind:
+            string $userNotificationLogPath: '%app.user_registered_notification_log_path%'
 
     # Deterministic OTP code for test environment
     App\Tests\User\Infrastructure\OtpChallenge\DeterministicCodeOtpChallengeOutside:

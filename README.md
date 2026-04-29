@@ -8,6 +8,8 @@ A demonstration of Domain-Driven Design patterns: Outside pattern, CQRS-lite, Be
 - **Outside pattern**: domain reads external state without side-effects via Outside interfaces
 - **CQRS-lite**: Commands for writes, DBAL Queries for reads (no ORM on the read side)
 - **Quality gates**: cs-check, phpstan, deptrac-ci, phpunit, behat
+- **UTC clock**: shared ClockInterface with SystemClock/MutableClock and UTC-normalized DateTime storage
+- **Async outbox**: IntegrationEvent → Postgres outbox → worker → async subscriber, with idempotent consumption
 
 ## Dev (Docker + Symfony)
 
@@ -127,3 +129,15 @@ Actors: tenant user (non-platform)
 Tenant member logged in → POST create-client → 403
 
 Outcome: platform-admin operations are fully gated from tenant users.
+
+---
+
+### 6. User registration publishes an async notification
+
+`app/tests/Behat/features/user/user_registration.feature` — *"Registered user notification is processed asynchronously"*
+
+Actors: system
+
+User is registered → `UserRegistered` domain event → saga publishes `UserRegisteredIntegrationEvent` → outbox stores event → worker processes integration events → file notification is written once
+
+Outcome: demo shows a full async flow without a broker: domain event, integration event, outbox worker, async subscriber and idempotent side effect.
