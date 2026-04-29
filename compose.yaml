@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.13-alpine
     environment:
       POSTGRES_DB: demo
       POSTGRES_USER: demo
@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
 
   nginx:
-    image: nginx:1.27-alpine
+    image: nginx:1.27.5-alpine
     depends_on:
       - php
     restart: unless-stopped
