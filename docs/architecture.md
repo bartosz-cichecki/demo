@@ -1,5 +1,7 @@
 # Architecture
 
+Ten dokument jest kanonicznym source of truth. Wersja angielska: [architecture.en.md](architecture.en.md).
+
 ## 1. Cel i priorytety
 - KISS ponad “spryt”.
 - Czytelny podział warstw i kierunek zależności wymuszony narzędziami (Deptrac).
@@ -83,6 +85,12 @@ app/src/{BoundedContext}/
   - adaptery wejścia (HTTP/CLI), walidacja, mapowanie Input -> Command, odpowiedź (HTTP)
 
 Deptrac jest źródłem prawdy dla kierunku zależności.
+
+### 4.1 Odczyt danych z obcego kontekstu (ACL)
+- Kontekst nigdy nie pisze raw SQL/DBAL do tabel, których nie jest właścicielem.
+- Jeśli kontekst A potrzebuje danych z kontekstu B, zależność jest zepchnięta na sam dół (Infrastructure) i przechodzi przez publiczny `QueryInterface` kontekstu B.
+- Kontekst A definiuje własne DTO i mapuje dane z DTO kontekstu B — nie reeksportuje obcych DTO wyżej niż warstwa Infrastructure (Anti-Corruption Layer).
+- Zaleta monolitu modularnego: zależność jest compile-time, bez serializacji i sieci, ale granice kontekstów są jawne i wymuszalne narzędziami (Deptrac).
 
 ## 5. CQRS-lite (kontrakt zespołowy)
 
@@ -172,6 +180,10 @@ Deptrac jest źródłem prawdy dla kierunku zależności.
 - `IntegrationEventPublisherInterface::publish()` nie dispatchuje eventu in-memory. Aktualna implementacja `DbalOutboxPublisher` zapisuje rekord do `shared.async_outbox`.
 - `DbalOutboxPublisher` nadaje techniczne `event_id`, zapisuje `event_name` jako FQCN klasy eventu, payload JSON oraz `created_at` z `ClockInterface` jako UTC storage string.
 - Jeśli sync saga tłumaczy `DomainEvent` na `IntegrationEvent`, robi to w Application i używa `IntegrationEventPublisherInterface`.
+- Jeśli celem reakcji sync sagi jest async publish, saga nie uruchamia `CommandBus`; publikuje `IntegrationEvent` przez publisher.
+- Konwencje DI:
+  - sagi sync: `src/*/Application/**/Saga/*Saga.php` z tagiem `app.saga`, wywoływane przez sync `EventBus`
+  - async subscribery: `src/*/Application/IntegrationEventSubscriber/*Subscriber.php` z tagiem `app.integration_event_subscriber`, wywoływane przez worker outboxa
 
 ## 9. Transakcje i flush (jeden punkt)
 - Flush/commit jest w jednym miejscu (centralna orkiestracja).
@@ -231,7 +243,7 @@ Deptrac jest źródłem prawdy dla kierunku zależności.
 
 ## 12. Test strategy (minimum)
 - Domain unit: testujemy zachowanie agregatów z FakeOutside i deterministycznym czasem.
-- Integration: infrastruktura (DB, query DBAL, event log, mapping) ma przynajmniej jeden sensowny test.
+- Integration: infrastruktura (DB, query DBAL, event log, mapping) ma sensowną automatyczną osłonę testową. Nie wymagamy osobnego testu mappingu dla każdego agregatu, jeśli mapping jest już realnie pokryty przez Behat lub inny test integracyjny przechodzący przez persist/flush/load. Dedykowany test mappingu dodajemy tylko wtedy, gdy mapping nie ma naturalnego pokrycia albo jest na tyle nietrywialny, że osobny test daje realną wartość.
 - E2E (Behat): przynajmniej jeden scenariusz “happy path” przez UI -> Application -> Domain -> Infrastructure.
 
 ### 12.1 Behat conventions (KISS)
@@ -251,3 +263,9 @@ Używamy komend z `Makefile` w głównym katalogu.
 - `make deptrac-ci`
 - `make test`
 - `make behat` (jeśli dotyczy UI / flow E2E)
+
+## 14. Flow pracy (jak działamy)
+1. Omawiamy case biznesowy i granice BC.
+2. Spisujemy decyzje i konsekwencje w krótkiej notatce.
+3. Z notatki robimy backlog kroków implementacyjnych.
+4. Na końcu prompt dla agenta CLI ma wdrożyć dokładnie ustalenia i przejść quality gates.
