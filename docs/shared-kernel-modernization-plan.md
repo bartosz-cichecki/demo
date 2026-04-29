@@ -99,6 +99,9 @@ Ten plan opisuje wyłącznie mechanizmy techniczne. Nie zakłada nowego kontekst
    - aktualizować Composer tylko wtedy, gdy wynika to z potrzeb nowych mechanizmów albo quality gates.
    - Status: przypięto obrazy Docker do patch tags bez major upgrade’ów: PHP `8.3.30-fpm`, Composer `2.9.7`, PostgreSQL `16.13-alpine` i nginx `1.27.5-alpine`; prod Composer baseline uzupełniono minimalnie o runtime `symfony/translation` `7.4.*`, ponieważ prod `composer install --no-dev` musi obsłużyć aktywną konfigurację translatora; prod Doctrine proxy baseline ustawiono na `auto_generate_proxy_classes: 'FILE_NOT_EXISTS'`, zgodnie z finalnymi encjami domenowymi i wzorcem z projektu referencyjnego. `symfony.lock` i frontend dependencies nie wymagały zmian.
 
+7. Pierwsze realne użycie async outboxa w BC User ✅ DONE
+   - Status: rejestracja użytkownika emituje `UserRegistered`, saga publikuje `UserRegisteredIntegrationEvent` do outboxa; worker `app:process-outbox` wykonuje async subscriber i zapisuje techniczną notyfikację do pliku przez adapter infrastrukturalny. Behat potwierdza pełny flow end-to-end oraz brak duplikatu po ponownym uruchomieniu workera. Testowa konfiguracja DI nie używa już `public: true` dla clocka ani publishera integracyjnego tylko po to, aby pobierały je testy.
+
 Po każdym zakończonym slice aktualizujemy status w tym dokumencie. Plan ma pokazywać aktualny stan prac, nie tylko pierwotne założenia.
 
 ## Ryzyka

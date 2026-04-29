@@ -17,3 +17,11 @@ Feature: User registration
         And I verify OTP for email "otp-user-invalid@example.com" with code "000000"
         Then OTP verify response should be ok false
         And session should not contain user id
+
+    Scenario: Registered user notification is processed asynchronously
+        When I register user "new_user" with email "new-user@example.com"
+        Then an integration event for registered user "new-user@example.com" should be stored in the outbox
+        When the integration events are processed
+        Then a user registration notification for "new-user@example.com" should be stored
+        When the integration events are processed
+        Then exactly one user registration notification for "new-user@example.com" should be stored

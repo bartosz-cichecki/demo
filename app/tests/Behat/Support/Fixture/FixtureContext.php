@@ -23,6 +23,7 @@ final class FixtureContext implements Context
         private readonly CommandBusInterface $commandBus,
         private readonly Connection $connection,
         private readonly UserQueryInterface $userQuery,
+        private readonly string $userNotificationLogPath,
     ) {
     }
 
@@ -36,7 +37,13 @@ final class FixtureContext implements Context
         $this->connection->executeStatement('DELETE FROM client.clients');
         $this->connection->executeStatement('DELETE FROM "user".otp_challenges');
         $this->connection->executeStatement('DELETE FROM "user".users');
+        $this->connection->executeStatement('DELETE FROM shared.async_consumption');
+        $this->connection->executeStatement('DELETE FROM shared.async_outbox');
         $this->connection->executeStatement('DELETE FROM shared.event_log');
+
+        if (is_file($this->userNotificationLogPath)) {
+            unlink($this->userNotificationLogPath);
+        }
     }
 
     /**

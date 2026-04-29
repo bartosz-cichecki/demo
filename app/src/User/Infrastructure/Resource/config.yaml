@@ -1,3 +1,11 @@
+parameters:
+    app.user_registered_notification_log_path: '%kernel.project_dir%/var/notifications/user_registered.log'
+
+services:
+    App\User\Infrastructure\Notification\FileUserNotificationSenderService:
+        arguments:
+            $filePath: '%app.user_registered_notification_log_path%'
+
 doctrine:
     orm:
         mappings:
