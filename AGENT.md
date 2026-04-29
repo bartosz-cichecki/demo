@@ -1,100 +1,101 @@
 # AGENT.md
 
-Cel
-- Ten plik jest instrukcją pracy dla agentów kodowania.
-- Architektura i zasady systemu są wyłącznie w docs/architecture.md (source of truth).
+Purpose
+- This file defines working instructions for coding agents.
+- The architecture and system rules live only in `docs/architecture.md` (canonical source of truth).
+- English readers may use `docs/architecture.en.md`, but `docs/architecture.md` remains canonical.
 
 ## 1) Source of truth
-Zanim cokolwiek zmienisz, przeczytaj:
-- docs/architecture.md
+Before changing anything, read:
+- `docs/architecture.md`
 
-Jeśli pojawia się konflikt: docs/architecture.md wygrywa.
+If there is a conflict, `docs/architecture.md` wins.
 
-## 2) Jak pracować w tym repo (workflow)
-1) Zrozum zadanie
-- Doprecyzuj: które route, które role/guardy, jakie inwarianty domenowe.
-- Ustal minimalny diff (KISS).
+## 2) How to work in this repository (workflow)
+1. Understand the task
+- Clarify: which route, which roles/guards, which domain invariants.
+- Determine the minimal diff (KISS).
 
-2) Zlokalizuj miejsca zmiany
-- Kod produkcyjny: app/src/
-- Konfiguracja: app/config/
-- Testy: app/tests/
-- Dokumentacja: docs/
+2. Locate the places to change
+- Production code: `app/src/`
+- Configuration: `app/config/`
+- Tests: `app/tests/`
+- Documentation: `docs/`
 
-3) Implementuj
-- Trzymaj się warstw i granic BC zgodnie z docs/architecture.md.
-- Zmieniaj tylko to, co jest wymagane do DONE.
-- Dodaj test, który udowadnia wymaganie (preferuj Behat dla zachowania HTTP, PHPUnit dla jednostek).
+3. Implement
+- Follow the layers and BC boundaries defined in `docs/architecture.md`.
+- Change only what is required for DONE.
+- Add a test that proves the requirement (prefer Behat for HTTP behavior, PHPUnit for unit tests).
 
-4) Uporządkuj
-- Brak zbędnych refaktorów "przy okazji".
-- Spójne nazewnictwo: route-name, komendy, klasy, pliki.
+4. Clean up
+- No unnecessary refactors "on the side".
+- Keep naming consistent: route names, commands, classes, files.
 
-5) Odpal quality gates lokalnie (Makefile)
-- make test
-- make behat
-- make phpstan
-- make deptrac-ci
+5. Run local quality gates (Makefile)
+- `make test`
+- `make behat`
+- `make phpstan`
+- `make deptrac-ci`
 
-## 3) Twarde guardrails (nie negocjuj)
-- Nie zmieniaj architektury ani publicznego API, jeśli prompt nie mówi inaczej.
-- Nie przenoś logiki biznesowej do Application "bo szybciej".
-- Nie loguj sekretów (tokeny/cookies tylko hash albo redakcja).
-- Nie dodawaj nowych usług (Redis itp.), jeśli prompt tego nie wymaga.
-- Minimalny diff, zero kosmetyki poza koniecznym.
+## 3) Hard guardrails (non-negotiable)
+- Do not change the architecture or public API unless the prompt says so.
+- Do not move business logic into Application "because it is faster".
+- Do not log secrets (tokens/cookies only as hashes or redacted values).
+- Do not add new services (Redis, etc.) unless the prompt requires it.
+- Minimal diff, no cosmetic changes unless necessary.
 
-## 4) Zasady orientacyjne (bez duplikowania architektury)
-Szczegóły są w docs/architecture.md, ale pamiętaj:
-- Domena trzyma reguły i inwarianty, Application orkiestruje przypadki użycia, Ui obsługuje HTTP.
-- Read i write mogą mieć różne ścieżki (CQRS-lite), jeśli to jest już standardem w projekcie.
-- Integracje i IO idą przez porty (Outside) zgodnie z docs/architecture.md.
-- Subscriber/listener ma być cienki i przewidywalny.
+## 4) Guiding rules (without duplicating the architecture)
+Details are in `docs/architecture.md`, but remember:
+- Domain holds rules and invariants, Application orchestrates use cases, Ui handles HTTP.
+- Reads and writes may use different paths (CQRS-lite), if this is already the project standard.
+- Integrations and IO go through ports (Outside) according to `docs/architecture.md`.
+- A subscriber/listener must be thin and predictable.
 
-## 5) Komendy (najczęściej używane)
-- make test
-- make behat
-- make phpstan
-- make deptrac-ci
-- make cs-check (jeśli jest w repo)
+## 5) Commands (most common)
+- `make test`
+- `make behat`
+- `make phpstan`
+- `make deptrac-ci`
+- `make cs-check` (if it exists in the repository)
 
-Jeśli musisz użyć docker compose, rób to przez Makefile, o ile istnieje target.
+If you must use docker compose, do it through the Makefile if a target exists.
 
-## 6) Format odpowiedzi agenta po implementacji (raport)
-W raporcie podaj:
-- Summary (1-5 punktów)
-- Files Created / Files Modified (lista)
-- Jak sprawdziłeś (jakie make targety odpalone i wynik)
-- Ryzyka/uwagi (krótko)
-- Jeśli były zmiany w docs, wskaż które pliki i dlaczego
+## 6) Agent response format after implementation (report)
+Include in the report:
+- Summary (1-5 points)
+- Files Created / Files Modified (list)
+- How you checked it (which make targets were run and their result)
+- Risks/notes (briefly)
+- If docs changed, identify which files and why
 
-## 7) Szablon promptu (do wklejania dla agentów)
-Skopiuj i uzupełnij:
+## 7) Prompt template (for agents)
+Copy and fill in:
 
-Cel
-- (1-2 zdania)
+Goal
+- (1-2 sentences)
 
-Kroki (konkret)
-1) ...
-2) ...
+Steps (specific)
+1. ...
+2. ...
 
-Komendy
-- make test
-- make behat
-- make phpstan
-- make deptrac-ci
+Commands
+- `make test`
+- `make behat`
+- `make phpstan`
+- `make deptrac-ci`
 
-Kryterium DONE
-- (testy + zachowanie systemu)
+DONE criteria
+- (tests + system behavior)
 
-Ograniczenia
-- Bez refaktoru poza koniecznym
-- Bez zmian w domenie, jeśli prompt nie mówi inaczej
-- Bez zmian architektury/publicznego API
+Constraints
+- No refactor beyond what is necessary
+- No domain changes unless the prompt says so
+- No architecture/public API changes
 
 ## 8) Commit message
-- Conventional Commits: type(scope): opis
-- Krótko, po angielsku
-  Przykłady:
-- feat(retro): add rate limiting for public endpoints
-- fix(security): harden guard route map
-- docs(runbooks): document rate limiter configuration
+- Conventional Commits: `type(scope): description`
+- Short, in English
+  Examples:
+- `feat(retro): add rate limiting for public endpoints`
+- `fix(security): harden guard route map`
+- `docs(runbooks): document rate limiter configuration`
