@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\User\Infrastructure\OtpChallenge\RateLimit;
 
+use App\SharedKernel\Domain\Clock\ClockInterface;
 use App\SharedKernel\Domain\ValueObject\Email;
 use App\User\Application\OtpChallenge\Query\Dto\OtpRateLimitDto;
 use App\User\Application\OtpChallenge\Query\OtpRateLimitQueryInterface;
@@ -17,6 +18,7 @@ final readonly class OtpRateLimitQuery implements OtpRateLimitQueryInterface
     public function __construct(
         private Connection $connection,
         private ValueHasherServiceInterface $valueHasher,
+        private ClockInterface $clock,
     ) {
     }
 
@@ -29,7 +31,7 @@ final readonly class OtpRateLimitQuery implements OtpRateLimitQueryInterface
             $ipLastSentAt = $this->findLatestSentAtByIpHash($this->valueHasher->hash($ipAddress));
         }
 
-        $now = new \DateTimeImmutable();
+        $now = $this->clock->now()->value;
         $blockedUntil = $this->resolveBlockedUntil($emailLastSentAt, $ipLastSentAt);
 
         if (null === $blockedUntil || $blockedUntil <= $now) {

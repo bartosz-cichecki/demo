@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\User\Application\OtpChallenge\Command\VerifyOtp;
 
-use App\SharedKernel\Application\CommandBus\CommandInterface;
+use App\SharedKernel\Application\CommandBus\CommandWithResultInterface;
 use App\SharedKernel\Domain\ValueObject\Email;
 
-final readonly class VerifyOtpCommand implements CommandInterface
+/**
+ * @implements CommandWithResultInterface<VerifyOtpResult>
+ */
+final readonly class VerifyOtpCommand implements CommandWithResultInterface
 {
     public function __construct(
         public Email $email,

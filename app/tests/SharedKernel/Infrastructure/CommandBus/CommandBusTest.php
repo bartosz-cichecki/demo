@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\SharedKernel\Infrastructure\CommandBus;
 
 use App\SharedKernel\Application\CommandBus\CommandInterface;
+use App\SharedKernel\Application\CommandBus\CommandWithResultInterface;
 use App\SharedKernel\Application\EventBus\EventBusInterface;
 use App\SharedKernel\Application\EventLog\EventLogInterface;
 use App\SharedKernel\Domain\Event\DomainEvent;
@@ -153,26 +154,112 @@ final class CommandBusTest extends TestCase
         $this->assertCount(0, $this->buffer->peek(), 'Buffer should be empty after drain');
     }
 
-    /**
-     * @param array<string, callable> $handlers
-     */
-    private function createCommandBus(array $handlers): CommandBus
+    public function testDispatchWithResultReturnsTypedResultAfterCommit(): void
     {
-        return $this->createCommandBusWithEventBus($handlers, $this->createEventBus());
+        $operations = [];
+        $expectedResult = new FakeCommandResult(true);
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->expects($this->once())
+            ->method('beginTransaction')
+            ->willReturnCallback(static function () use (&$operations): void {
+                $operations[] = 'begin';
+            });
+        $entityManager->expects($this->once())
+            ->method('flush')
+            ->willReturnCallback(static function () use (&$operations): void {
+                $operations[] = 'flush';
+            });
+        $entityManager->expects($this->once())
+            ->method('commit')
+            ->willReturnCallback(static function () use (&$operations): void {
+                $operations[] = 'commit';
+            });
+        $entityManager->expects($this->never())->method('rollback');
+
+        $commandBus = $this->createCommandBus([
+            CommandThatReturnsResult::class . 'Handler' => function () use (&$operations, $expectedResult): FakeCommandResult {
+                $operations[] = 'handler';
+                $this->buffer->record(new FakeDomainEvent());
+
+                return $expectedResult;
+            },
+        ], $entityManager);
+
+        $result = $commandBus->dispatchWithResult(new CommandThatReturnsResult());
+
+        $this->assertTrue($result->verified);
+        $this->assertSame($expectedResult, $result);
+        $this->assertSame(['begin', 'handler', 'flush', 'commit'], $operations);
+        $this->assertCount(1, $this->loggedEvents);
+        $this->assertCount(1, $this->dispatchedEvents);
+    }
+
+    public function testDispatchWithResultRollsBackAndRethrowsTechnicalFailure(): void
+    {
+        $operations = [];
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->expects($this->once())
+            ->method('beginTransaction')
+            ->willReturnCallback(static function () use (&$operations): void {
+                $operations[] = 'begin';
+            });
+        $entityManager->expects($this->once())
+            ->method('flush')
+            ->willReturnCallback(static function () use (&$operations): never {
+                $operations[] = 'flush';
+
+                throw new \RuntimeException('Flush failed');
+            });
+        $entityManager->expects($this->never())->method('commit');
+        $entityManager->expects($this->once())
+            ->method('rollback')
+            ->willReturnCallback(static function () use (&$operations): void {
+                $operations[] = 'rollback';
+            });
+
+        $commandBus = $this->createCommandBus([
+            CommandThatReturnsResult::class . 'Handler' => static function () use (&$operations): FakeCommandResult {
+                $operations[] = 'handler';
+
+                return new FakeCommandResult(true);
+            },
+        ], $entityManager);
+
+        try {
+            $commandBus->dispatchWithResult(new CommandThatReturnsResult());
+            $this->fail('Expected exception was not thrown');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Flush failed', $exception->getMessage());
+        }
+
+        $this->assertSame(['begin', 'handler', 'flush', 'rollback'], $operations);
     }
 
     /**
      * @param array<string, callable> $handlers
      */
-    private function createCommandBusWithEventBus(array $handlers, EventBusInterface $eventBus): CommandBus
-    {
+    private function createCommandBus(
+        array $handlers,
+        ?EntityManagerInterface $entityManager = null,
+    ): CommandBus {
+        return $this->createCommandBusWithEventBus($handlers, $this->createEventBus(), $entityManager);
+    }
+
+    /**
+     * @param array<string, callable> $handlers
+     */
+    private function createCommandBusWithEventBus(
+        array $handlers,
+        EventBusInterface $eventBus,
+        ?EntityManagerInterface $entityManager = null,
+    ): CommandBus {
         $container = $this->createStub(ContainerInterface::class);
         $container->method('has')
             ->willReturnCallback(static fn (string $id) => isset($handlers[$id]));
         $container->method('get')
             ->willReturnCallback(static fn (string $id) => $handlers[$id]);
 
-        $this->em = $this->createStub(EntityManagerInterface::class);
+        $this->em = $entityManager ?? $this->createStub(EntityManagerInterface::class);
 
         return new CommandBus(
             $container,
@@ -216,6 +303,21 @@ final class CommandThatDoesNothing implements CommandInterface
 
 final class CommandThatRecordsEventAndThrows implements CommandInterface
 {
+}
+
+/**
+ * @implements CommandWithResultInterface<FakeCommandResult>
+ */
+final class CommandThatReturnsResult implements CommandWithResultInterface
+{
+}
+
+final readonly class FakeCommandResult
+{
+    public function __construct(
+        public bool $verified,
+    ) {
+    }
 }
 
 final class FakeDomainEvent implements DomainEvent

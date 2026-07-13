@@ -6,6 +6,7 @@ namespace App\SharedKernel\Ui\Http\Api;
 
 use App\SharedKernel\Application\CommandBus\CommandBusInterface;
 use App\SharedKernel\Application\CommandBus\CommandInterface;
+use App\SharedKernel\Application\CommandBus\CommandWithResultInterface;
 use App\SharedKernel\Domain\ValueObject\Id;
 use App\SharedKernel\Ui\Http\Exception\ValidationException;
 use App\SharedKernel\Ui\Http\Session\SessionContext;
@@ -35,6 +36,18 @@ abstract readonly class AbstractController
     protected function executeCommand(CommandInterface $command): void
     {
         $this->commandBus->dispatch($command);
+    }
+
+    /**
+     * @template TResult of object
+     *
+     * @param CommandWithResultInterface<TResult> $command
+     *
+     * @return TResult
+     */
+    protected function executeCommandWithResult(CommandWithResultInterface $command): object
+    {
+        return $this->commandBus->dispatchWithResult($command);
     }
 
     /**

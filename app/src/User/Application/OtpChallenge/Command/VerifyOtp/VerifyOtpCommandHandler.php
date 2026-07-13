@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\User\Application\OtpChallenge\Command\VerifyOtp;
 
-use App\User\Application\OtpChallenge\Command\VerifyOtp\Exception\OtpVerificationFailedException;
 use App\User\Domain\OtpChallenge\Repository\OtpChallengeRepositoryInterface;
 
 final readonly class VerifyOtpCommandHandler
@@ -16,16 +15,14 @@ final readonly class VerifyOtpCommandHandler
     ) {
     }
 
-    public function __invoke(VerifyOtpCommand $command): void
+    public function __invoke(VerifyOtpCommand $command): VerifyOtpResult
     {
         $email = $command->email;
         $challenge = $this->otpChallengeRepository->findLatestByEmail($email);
         if (null === $challenge) {
-            throw new OtpVerificationFailedException();
+            return new VerifyOtpResult(false);
         }
 
-        if (!$challenge->verify($command->code, self::MAX_ATTEMPTS)) {
-            throw new OtpVerificationFailedException();
-        }
+        return new VerifyOtpResult($challenge->verify($command->code, self::MAX_ATTEMPTS));
     }
 }

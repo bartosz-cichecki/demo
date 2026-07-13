@@ -112,6 +112,10 @@ Deptrac jest źródłem prawdy dla kierunku zależności.
   - orkiestruje
   - używa Factory/Repository
   - nie rejestruje eventów domenowych (to robi agregat przez Outside)
+- Handlery Command domyślnie zwracają `void` i są uruchamiane przez `CommandBus::dispatch()`.
+- Gdy bieżąca operacja musi zwrócić minimalny wynik biznesowy, Command może implementować `CommandWithResultInterface<TResult>` i być uruchomiony przez `CommandBus::dispatchWithResult()`.
+- Wynik z `dispatchWithResult()` wraca dopiero po udanym flushu, obsłudze eventów i commit.
+- Wynik Command nie może być agregatem, encją ani read modelem.
 
 ### 5.2 Odczyt (Queries)
 - Odczyt danych = zawsze DBAL/SQL (żadnego ORM do query).

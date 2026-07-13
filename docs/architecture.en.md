@@ -112,6 +112,10 @@ Deptrac is the source of truth for dependency direction.
   - orchestrates
   - uses Factory/Repository
   - does not record domain events (the aggregate does this through Outside)
+- Command handlers return `void` by default and are invoked through `CommandBus::dispatch()`.
+- When the current operation must return a minimal business result, a Command may implement `CommandWithResultInterface<TResult>` and be invoked through `CommandBus::dispatchWithResult()`.
+- The result from `dispatchWithResult()` is returned only after a successful flush, event handling, and commit.
+- A Command result must not be an aggregate, entity, or read model.
 
 ### 5.2 Read side (Queries)
 - Data reads are always DBAL/SQL (no ORM for queries).
