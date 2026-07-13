@@ -19,7 +19,9 @@ Standardowy układ:
 - `app/src/{BC}/Infrastructure`
 - `app/src/{BC}/Ui`
   - HTTP API: `app/src/{BC}/Ui/Http/...`
-  - CLI: `app/src/{BC}/Ui/ConsoleCommands/...` (z czasem)
+  - CLI: `app/src/{BC}/Ui/ConsoleCommands/...`
+
+Autoload klas produkcyjnych używa PSR-4 `App\\` -> `app/src/`. Aktualne konteksty biznesowe to `Client` i `User`; mechanizmy współdzielone należą do `SharedKernel`.
 
 SharedKernel:
 - `app/src/SharedKernel/...` zawiera mechanizmy wspólne (np. Clock, EventLog, CommandBus, DomainEventsRecorder/Collector, integration events, outbox i worker async).
@@ -90,7 +92,13 @@ Deptrac jest źródłem prawdy dla kierunku zależności.
 - Kontekst nigdy nie pisze raw SQL/DBAL do tabel, których nie jest właścicielem.
 - Jeśli kontekst A potrzebuje danych z kontekstu B, zależność jest zepchnięta na sam dół (Infrastructure) i przechodzi przez publiczny `QueryInterface` kontekstu B.
 - Kontekst A definiuje własne DTO i mapuje dane z DTO kontekstu B — nie reeksportuje obcych DTO wyżej niż warstwa Infrastructure (Anti-Corruption Layer).
-- Zaleta monolitu modularnego: zależność jest compile-time, bez serializacji i sieci, ale granice kontekstów są jawne i wymuszalne narzędziami (Deptrac).
+- Zaleta monolitu modularnego: zależność jest compile-time, bez serializacji i sieci, a granice kontekstów są jawne w namespace'ach i adapterach.
+- Aktualna konfiguracja Deptrac wymusza kierunek zależności między warstwami, ale nie definiuje osobnych warstw dla każdego BC. Zgodność cross-BC wymaga więc także jawnego pre-flight i review importów; zielony Deptrac nie jest samodzielnym dowodem poprawnego ACL.
+
+### 4.2 Przypadek użycia zapisujący cross-BC
+- Jeśli przypadek użycia w kontekście A musi uruchomić zapis należący do kontekstu B, Application kontekstu A zależy od własnego portu.
+- Implementacja tego portu leży w Infrastructure kontekstu A. Adapter może wywołać publiczny Command kontekstu B przez `CommandBus` i odczytać wynik przez publiczny `QueryInterface` kontekstu B.
+- Application kontekstu konsumującego nie importuje klas z Application ani Domain obcego BC. Szczegóły obcego kontraktu pozostają w adapterze Infrastructure.
 
 ## 5. CQRS-lite (kontrakt zespołowy)
 
@@ -225,11 +233,16 @@ Deptrac jest źródłem prawdy dla kierunku zależności.
   - brak dead letter queue
   - worker używa polling zamiast sygnału pobudki
 
+### 9.3 Migracje
+- Migracje należą do właściciela schematu i są przechowywane w `app/src/{BC}/Infrastructure/Resource/Migrations/`; migracje mechanizmów współdzielonych należą do `SharedKernel`.
+- Namespace'y migracji są rejestrowane centralnie w konfiguracji Doctrine Migrations.
+- Generowanie diffu jest targetowane namespace'em kontekstu, ale wykonanie `doctrine:migrations:migrate` obejmuje wspólny zestaw wszystkich zarejestrowanych, oczekujących migracji. Nazwy targetów `migrations-migrate-client` i `migrations-migrate-user` nie oznaczają izolowanego wykonania tylko jednego BC.
+
 ## 10. DI i konfiguracja
-- Preferujemy konwencję ponad konfigurację (autoload, wzorce plików, minimalne ręczne wpisy).
-- Ręczne aliasy/definicje tylko gdy:
-  - jest więcej niż jedna implementacja
-  - albo potrzebujesz jawnego wyboru/priorytetu
+- `app/config/services.yaml` jest rootem konfiguracji usług: importuje konwencyjny autoload oraz konfiguracje Infrastructure poszczególnych modułów.
+- `app/config/services.autoload.yaml` rejestruje przez wzorce kontrolery, fabryki, repozytoria, query, Outside, handlery Command, komendy konsolowe, sagi, subscribery integration events, klasy `*Service` oraz pozostałe usługi Infrastructure.
+- Szczegóły DI i mapowania Doctrine należące do modułu trzymamy w `app/src/{BC}/Infrastructure/Resource/config.yaml`. Root config pozostaje miejscem importów i naprawdę globalnych parametrów.
+- Ręczny alias albo definicja są uzasadnione, gdy konwencja nie wystarcza: potrzebny jest jawny wybór implementacji, locator/iterator tagowanych usług, specjalny argument lub parametr środowiska, dekorator albo inna konfiguracja niewyrażalna samym wzorcem autoload.
 - Nie robimy `public: true` tylko pod testy.
 
 ## 11. Platform routes (konwencja `platform_`)
@@ -240,6 +253,12 @@ Deptrac jest źródłem prawdy dla kierunku zależności.
   - `PlatformAdminGuardSubscriber`: wymusza `session.is_platform_admin === true`; w przeciwnym razie 403.
 - Flaga `session.is_platform_admin` ustawiana po udanym loginie (`PlatformAdminOnLoginSubscriber`) na podstawie allowlisty `app.platform_admin_emails`.
 - Test architektoniczny (`PlatformRouteNamingTest`) pilnuje, że żaden route nie zawiera substring "platform" bez prefiksu `platform_`.
+
+### 11.1 Aktualna powierzchnia HTTP/API
+- Routing aplikacji ładuje kontrolery z `app/src/**/Ui/Http/Api/` i dodaje prefix `/api`.
+- Aktualne kontrolery HTTP zwracają JSON. Repozytorium nie zawiera runtime aplikacji przeglądarkowej, więc takiego konsumenta ani jego kontraktów nie zakładamy na podstawie materiałów zewnętrznych.
+- Publiczny kontrakt endpointu obejmuje ścieżkę, metodę HTTP, input, status odpowiedzi i payload JSON. Zmiana któregokolwiek z tych elementów jest zmianą publicznej powierzchni HTTP i wymaga jawnego zakresu zadania oraz aktualizacji testów zachowania.
+- Route name jest wewnętrznym kontraktem routingu i security, a nie częścią publicznego kontraktu HTTP. Nowe albo zmienione route names wymagają sprawdzenia prefiksu `platform_`, mapy ról i allowlisty `TenantGuardSubscriber` oraz subscriberów reagujących na konkretną route.
 
 ## 12. Test strategy (minimum)
 - Domain unit: testujemy zachowanie agregatów z FakeOutside i deterministycznym czasem.
@@ -263,6 +282,10 @@ Używamy komend z `Makefile` w głównym katalogu.
 - `make deptrac-ci`
 - `make test`
 - `make behat` (jeśli dotyczy UI / flow E2E)
+
+Bramki dobrane do zakresu uruchamiamy pojedynczo, w powyższej kolejności, czekając na pełny wynik i exit code przed startem kolejnej. Po błędzie zatrzymujemy sekwencję, naprawiamy problem i ponawiamy właściwe bramki. `make qa` uruchamia sekwencyjnie tylko `cs-check`, `phpstan` i `deptrac-ci`; nie zastępuje `make test` ani `make behat`.
+
+Dla zmian wyłącznie dokumentacyjnych, jeśli zadanie nie wymaga więcej, minimalną kontrolą jest `git diff --check`. Repo nie definiuje osobnego targetu do walidacji dokumentacji.
 
 ## 14. Flow pracy (jak działamy)
 1. Omawiamy case biznesowy i granice BC.

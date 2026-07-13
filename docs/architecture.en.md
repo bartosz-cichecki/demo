@@ -19,7 +19,9 @@ Standard layout:
 - `app/src/{BC}/Infrastructure`
 - `app/src/{BC}/Ui`
   - HTTP API: `app/src/{BC}/Ui/Http/...`
-  - CLI: `app/src/{BC}/Ui/ConsoleCommands/...` (over time)
+  - CLI: `app/src/{BC}/Ui/ConsoleCommands/...`
+
+Production class autoloading uses PSR-4 `App\\` -> `app/src/`. The current business contexts are `Client` and `User`; shared mechanisms belong to `SharedKernel`.
 
 SharedKernel:
 - `app/src/SharedKernel/...` contains shared mechanisms (for example Clock, EventLog, CommandBus, DomainEventsRecorder/Collector, integration events, outbox, and async worker).
@@ -90,7 +92,13 @@ Deptrac is the source of truth for dependency direction.
 - A context never writes raw SQL/DBAL to tables it does not own.
 - If context A needs data from context B, the dependency is pushed to the very bottom (Infrastructure) and goes through context B's public `QueryInterface`.
 - Context A defines its own DTO and maps data from context B's DTO. It does not re-export foreign DTOs above the Infrastructure layer (Anti-Corruption Layer).
-- Benefit of the modular monolith: the dependency is compile-time, without serialization or network calls, but context boundaries are explicit and enforceable by tools (Deptrac).
+- Benefit of the modular monolith: the dependency is compile-time, without serialization or network calls, while context boundaries are explicit in namespaces and adapters.
+- The current Deptrac configuration enforces dependency direction between layers, but it does not define separate layers for each BC. Cross-BC compliance therefore also requires an explicit pre-flight and import review; a green Deptrac result is not sufficient evidence of a correct ACL.
+
+### 4.2 A cross-BC write use case
+- If a use case in context A must initiate a write owned by context B, context A's Application layer depends on its own port.
+- The port implementation lives in context A's Infrastructure layer. The adapter may invoke context B's public Command through `CommandBus` and read the result through context B's public `QueryInterface`.
+- The consuming context's Application layer does not import classes from another BC's Application or Domain layer. Details of the foreign contract remain in the Infrastructure adapter.
 
 ## 5. CQRS-lite (team contract)
 
@@ -227,11 +235,16 @@ Deptrac is the source of truth for dependency direction.
   - no dead letter queue
   - the worker uses polling instead of a wake-up signal
 
+### 9.3 Migrations
+- Migrations belong to the schema owner and are stored in `app/src/{BC}/Infrastructure/Resource/Migrations/`; migrations for shared mechanisms belong to `SharedKernel`.
+- Migration namespaces are registered centrally in the Doctrine Migrations configuration.
+- Diff generation is targeted at a context namespace, but running `doctrine:migrations:migrate` covers the shared set of all registered pending migrations. The target names `migrations-migrate-client` and `migrations-migrate-user` do not mean that execution is isolated to a single BC.
+
 ## 10. DI and configuration
-- We prefer convention over configuration (autoload, file patterns, minimum manual entries).
-- Manual aliases/definitions only when:
-  - there is more than one implementation
-  - or you need an explicit choice/priority
+- `app/config/services.yaml` is the root service configuration: it imports convention-based autoloading and each module's Infrastructure configuration.
+- `app/config/services.autoload.yaml` uses patterns to register controllers, factories, repositories, queries, Outside implementations, Command handlers, console commands, sagas, integration event subscribers, `*Service` classes, and other Infrastructure services.
+- DI details and Doctrine mappings owned by a module belong in `app/src/{BC}/Infrastructure/Resource/config.yaml`. The root config remains the place for imports and truly global parameters.
+- A manual alias or definition is justified when convention is insufficient: an explicit implementation choice, a locator/iterator of tagged services, a special argument or environment parameter, a decorator, or other configuration that cannot be expressed by the autoload pattern is required.
 - Do not use `public: true` only for tests.
 
 ## 11. Platform routes (`platform_` convention)
@@ -242,6 +255,12 @@ Deptrac is the source of truth for dependency direction.
   - `PlatformAdminGuardSubscriber`: requires `session.is_platform_admin === true`; otherwise 403.
 - The `session.is_platform_admin` flag is set after successful login (`PlatformAdminOnLoginSubscriber`) based on the `app.platform_admin_emails` allowlist.
 - The architecture test (`PlatformRouteNamingTest`) ensures that no route contains the substring "platform" without the `platform_` prefix.
+
+### 11.1 Current HTTP/API surface
+- Application routing loads controllers from `app/src/**/Ui/Http/Api/` and adds the `/api` prefix.
+- The current HTTP controllers return JSON. The repository contains no runtime browser application, so such a consumer and its contracts are not inferred from external materials.
+- The public endpoint contract includes the path, HTTP method, input, response status, and JSON payload. Changing any of these elements changes the public HTTP surface and requires explicit task scope and behavior test updates.
+- The route name is an internal routing and security contract, not part of the public HTTP contract. New or changed route names require checking the `platform_` prefix, the role map and allowlist in `TenantGuardSubscriber`, and subscribers that react to a specific route.
 
 ## 12. Test strategy (minimum)
 - Domain unit: test aggregate behavior with FakeOutside and deterministic time.
@@ -264,6 +283,10 @@ Use commands from the `Makefile` in the root directory.
 - `make deptrac-ci`
 - `make test`
 - `make behat` (if UI / E2E flow is affected)
+
+Run the gates selected for the scope one at a time, in the order above, waiting for the complete result and exit code before starting the next one. After a failure, stop the sequence, fix the problem, and rerun the appropriate gates. `make qa` runs only `cs-check`, `phpstan`, and `deptrac-ci` sequentially; it does not replace `make test` or `make behat`.
+
+For documentation-only changes, unless the task requires more, the minimum check is `git diff --check`. The repository defines no separate documentation validation target.
 
 ## 14. Working flow (how we work)
 1. Discuss the business case and BC boundaries.
