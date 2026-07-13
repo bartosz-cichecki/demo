@@ -7,7 +7,6 @@ namespace App\User\Ui\Http\Api;
 use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Ui\Http\Api\AbstractController;
 use App\User\Application\OtpChallenge\Command\RequestOtp\RequestOtpCommand;
-use App\User\Application\OtpChallenge\Command\VerifyOtp\Exception\OtpVerificationFailedException;
 use App\User\Application\OtpChallenge\Command\VerifyOtp\VerifyOtpCommand;
 use App\User\Application\User\Query\UserQueryInterface;
 use App\User\Ui\Input\RequestOtpInput;
@@ -49,9 +48,8 @@ final readonly class OtpAuthController extends AbstractController
             return new JsonResponse(['ok' => false]);
         }
 
-        try {
-            $this->executeCommand(new VerifyOtpCommand($email, $input->code));
-        } catch (OtpVerificationFailedException) {
+        $result = $this->executeCommandWithResult(new VerifyOtpCommand($email, $input->code));
+        if (!$result->verified) {
             return new JsonResponse(['ok' => false]);
         }
 

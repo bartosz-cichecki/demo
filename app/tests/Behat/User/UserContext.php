@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace App\Tests\Behat\User;
 
 use App\SharedKernel\Application\CommandBus\CommandBusInterface;
+use App\SharedKernel\Domain\Clock\MutableClock;
 use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
 use App\Tests\Behat\Support\Fixture\FixtureRegistry;
 use App\Tests\Behat\Support\Fixture\UserFixture;
 use App\User\Application\IntegrationEvent\UserRegisteredIntegrationEvent;
+use App\User\Application\OtpChallenge\Command\RequestOtp\RequestOtpCommand;
+use App\User\Application\OtpChallenge\Command\VerifyOtp\VerifyOtpCommand;
+use App\User\Application\OtpChallenge\Query\OtpChallengeQueryInterface;
 use App\User\Application\User\Command\UpsertUserByEmail\UpsertUserByEmailCommand;
 use App\User\Application\User\Query\UserQueryInterface;
 use Behat\Behat\Context\Context;
@@ -22,12 +26,17 @@ use Symfony\Component\HttpKernel\KernelInterface;
 
 final class UserContext implements Context
 {
+    private const int OTP_MAX_ATTEMPTS = 5;
+    private const string OTP_COOLDOWN_ELAPSED_MODIFIER = '+61 seconds';
+
     public function __construct(
         private readonly KernelBrowser $client,
         private readonly Connection $connection,
         private readonly UserQueryInterface $userQuery,
+        private readonly OtpChallengeQueryInterface $otpChallengeQuery,
         private readonly FixtureRegistry $registry,
         private readonly CommandBusInterface $commandBus,
+        private readonly MutableClock $clock,
         private readonly KernelInterface $kernel,
         private readonly string $userNotificationLogPath,
     ) {
@@ -74,6 +83,29 @@ final class UserContext implements Context
     }
 
     /**
+     * @Given a fresh OTP challenge exists for email :email
+     */
+    public function aFreshOtpChallengeExistsForEmail(string $email): void
+    {
+        $this->clock->modify(self::OTP_COOLDOWN_ELAPSED_MODIFIER);
+        $this->commandBus->dispatch(new RequestOtpCommand(Email::fromString($email)));
+    }
+
+    /**
+     * @Given an exhausted OTP challenge exists for email :email
+     */
+    public function anExhaustedOtpChallengeExistsForEmail(string $email): void
+    {
+        $emailValue = Email::fromString($email);
+        $this->commandBus->dispatch(new RequestOtpCommand($emailValue));
+
+        for ($attempt = 0; $attempt < self::OTP_MAX_ATTEMPTS; ++$attempt) {
+            $result = $this->commandBus->dispatchWithResult(new VerifyOtpCommand($emailValue, '000000'));
+            Assert::assertFalse($result->verified, 'OTP fixture code must be invalid.');
+        }
+    }
+
+    /**
      * @When I register user :alias with email :email
      */
     public function iRegisterUserWithEmail(string $alias, string $email): void
@@ -111,13 +143,21 @@ final class UserContext implements Context
      */
     public function theLatestOtpChallengeForShouldBeConsumed(string $email): void
     {
-        $row = $this->connection->fetchAssociative(
-            'SELECT consumed_at FROM "user".otp_challenges WHERE email = :email ORDER BY last_sent_at DESC LIMIT 1',
-            ['email' => (string) Email::fromString($email)],
-        );
+        $challenge = $this->otpChallengeQuery->findLatestByEmail(Email::fromString($email));
 
-        Assert::assertIsArray($row, 'OTP challenge not found');
-        Assert::assertNotNull($row['consumed_at']);
+        Assert::assertNotNull($challenge, 'OTP challenge not found');
+        Assert::assertNotNull($challenge->consumedAt);
+    }
+
+    /**
+     * @Then the latest OTP challenge for :email should have :attempts attempts
+     */
+    public function theLatestOtpChallengeForShouldHaveAttempts(string $email, int $attempts): void
+    {
+        $challenge = $this->otpChallengeQuery->findLatestByEmail(Email::fromString($email));
+
+        Assert::assertNotNull($challenge, 'OTP challenge not found');
+        Assert::assertSame($attempts, $challenge->attempts);
     }
 
     /**
