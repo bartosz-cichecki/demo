@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 30
     env:
       CI: "true"
-      COMPOSER_CACHE_DIR: ${{ runner.temp }}/composer-cache
+      COMPOSER_CACHE_DIR: ${{ github.workspace }}/.composer-cache
 
     steps:
       - name: Check out repository
