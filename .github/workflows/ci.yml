@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: "true"
+      COMPOSER_CACHE_DIR: ${{ runner.temp }}/composer-cache
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Restore Composer cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.COMPOSER_CACHE_DIR }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('app/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
+
+      - name: Configure container user
+        run: |
+          echo "CI_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "CI_GID=$(id -g)" >> "$GITHUB_ENV"
+          mkdir -p "$COMPOSER_CACHE_DIR"
+
+      - name: Build and start containers
+        run: make up-build
+
+      - name: Install Composer dependencies
+        run: make install
+
+      - name: Migrate test database
+        run: make migrations-migrate-test
+
+      - name: Check code style
+        run: make cs-check
+
+      - name: Run PHPStan
+        run: make phpstan
+
+      - name: Run Deptrac
+        run: make deptrac-ci
+
+      - name: Run PHPUnit
+        run: make test
+
+      - name: Run Behat
+        run: make behat
+
+      - name: Stop containers
+        if: ${{ always() }}
+        run: make down

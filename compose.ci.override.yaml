@@ -1,0 +1,17 @@
+services:
+  php:
+    user: "${CI_UID:-1000}:${CI_GID:-1000}"
+    environment:
+      COMPOSER_HOME: /tmp/composer-home
+      COMPOSER_CACHE_DIR: /tmp/composer-cache
+    volumes:
+      - "${COMPOSER_CACHE_DIR:-./.composer-cache}:/tmp/composer-cache"
+    restart: "no"
+
+  postgres:
+    ports: !reset []
+    restart: "no"
+
+  nginx:
+    ports: !reset []
+    restart: "no"

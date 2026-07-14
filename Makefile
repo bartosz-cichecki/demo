@@ -1,13 +1,18 @@
 .PHONY: help install cs-check cs-fix phpstan deptrac deptrac-ci shell qa qa-fix test behat \
         up-prod up-prod-build down-prod logs-prod shell-prod \
-        db-validate db-create db-drop migrations-status migrations-diff-client migrations-migrate-client \
+        db-validate db-create db-drop migrations-status migrations-migrate-test migrations-diff-client migrations-migrate-client \
         migrations-diff-user migrations-migrate-user
 
 COMPOSE_DEV = docker compose -p demo-dev -f compose.yaml -f compose.dev.override.yaml
+COMPOSE_CI = docker compose -p demo-ci -f compose.yaml -f compose.dev.override.yaml -f compose.ci.override.yaml
 COMPOSE_PROD = docker compose -p demo-prod -f compose.yaml -f compose.prod.override.yaml
 DEMO_HTTP_PORT ?= 8082
 
+ifeq ($(CI),true)
+DOCKER_COMPOSE = $(COMPOSE_CI)
+else
 DOCKER_COMPOSE = $(COMPOSE_DEV)
+endif
 PHP_CONTAINER = php
 EXEC_PHP = $(DOCKER_COMPOSE) exec $(PHP_CONTAINER)
 EXEC_PHP_PROD = $(COMPOSE_PROD) exec $(PHP_CONTAINER)
@@ -77,7 +82,7 @@ test: ## Run PHPUnit tests
 	$(EXEC_PHP) sh -lc 'cd /var/www/app && vendor/bin/phpunit'
 
 behat: ## Run Behat tests
-	$(EXEC_PHP) sh -lc 'cd /var/www/app && php bin/console doctrine:migrations:migrate --no-interaction --env=test'
+	$(MAKE) migrations-migrate-test
 	$(EXEC_PHP) sh -lc 'cd /var/www/app && vendor/bin/behat -c behat.yml'
 
 # Pseudo-prod targets
@@ -108,6 +113,10 @@ db-drop: ## Drop database (use with caution)
 
 migrations-status: ## Show migrations status
 	$(EXEC_PHP) sh -lc 'cd /var/www/app && php bin/console doctrine:migrations:status'
+
+migrations-migrate-test: ## Run all migrations for the test environment
+	$(EXEC_PHP) sh -lc 'cd /var/www/app && php bin/console doctrine:database:create --if-not-exists --env=test'
+	$(EXEC_PHP) sh -lc 'cd /var/www/app && php bin/console doctrine:migrations:migrate --no-interaction --env=test'
 
 migrations-diff-client: ## Generate migration for Client context
 	$(EXEC_PHP) sh -lc 'cd /var/www/app && php bin/console doctrine:migrations:diff --namespace="App\\Client\\Infrastructure\\Resource\\Migrations"'
