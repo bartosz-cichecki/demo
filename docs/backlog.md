@@ -21,7 +21,7 @@ This backlog is not a list of every tool that could be added to the repository. 
 
 | Priority | Topic | Status | Updated | Done | Why |
 |---:|---|---|---|---|---|
-| 1 | GitHub Actions CI | TODO | 2026-04-30 | — | Prove quality gates on push/PR |
+| 1 | GitHub Actions CI | DONE | 2026-07-14 | 2026-07-14 | Prove quality gates on push/PR |
 | 2 | Mermaid architecture flow | TODO | 2026-04-30 | — | Show the main architecture flow in 30 seconds |
 | 3 | README first screen polish | TODO | 2026-04-30 | — | Explain quickly what the demo is and what it proves |
 | 4 | Architecture Decision Records | TODO | 2026-04-30 | — | Show conscious decisions and trade-offs |
@@ -32,7 +32,7 @@ This backlog is not a list of every tool that could be added to the repository. 
 
 ## 1. GitHub Actions CI
 
-Status: `TODO`
+Status: `DONE`
 
 ### Why
 
@@ -53,6 +53,8 @@ Quality gates should not be only a statement in the README. A public demo should
 ### Notes
 
 This is the highest-value single improvement for repository credibility. After this change, the statement “quality gates are part of the demo” becomes verifiable without running the project locally.
+
+Completion note (2026-07-14): the workflow passed the full set of quality gates on a real pull request, and `quality-gates` is a required check for `main`. The README badge remains part of the later `README first screen polish` task.
 
 ---
 
