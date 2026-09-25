@@ -6,7 +6,6 @@ namespace App\User\Infrastructure\Tenant;
 
 use App\Client\Application\ClientMember\Query\ClientMemberQueryInterface;
 use App\Client\Application\ClientMember\Query\Dto\ClientMemberDto;
-use App\Client\Domain\ClientMember\ClientMember;
 use App\SharedKernel\Domain\ValueObject\Id;
 use App\User\Application\Tenant\Query\ActiveMembershipsQueryInterface;
 use App\User\Application\Tenant\Query\Dto\ActiveMembershipDto;
@@ -23,7 +22,7 @@ final readonly class ActiveMembershipsQuery implements ActiveMembershipsQueryInt
         $memberships = $this->clientMemberQuery->listByUser($userId);
         $activeMemberships = array_values(array_filter(
             $memberships,
-            static fn (ClientMemberDto $membership): bool => ClientMember::STATUS_ACTIVE === $membership->status,
+            static fn (ClientMemberDto $membership): bool => $membership->isActive,
         ));
 
         return array_map(

@@ -6,6 +6,7 @@ namespace App\Client\Infrastructure\ClientMember;
 
 use App\Client\Application\ClientMember\Query\ClientMemberQueryInterface;
 use App\Client\Application\ClientMember\Query\Dto\ClientMemberDto;
+use App\Client\Domain\ClientMember\ClientMember;
 use App\SharedKernel\Domain\ValueObject\Id;
 use Doctrine\DBAL\Connection;
 
@@ -107,6 +108,8 @@ final readonly class ClientMemberQuery implements ClientMemberQueryInterface
             status: $row['status'],
             createdAt: $row['created_at'],
             updatedAt: $row['updated_at'],
+            isActive: ClientMember::STATUS_ACTIVE === $row['status'],
+            isAdmin: \in_array(ClientMember::ROLE_ADMIN, $roles, true),
         );
     }
 }

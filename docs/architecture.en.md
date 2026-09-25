@@ -264,7 +264,8 @@ Deptrac is the source of truth for dependency direction.
 - Application routing loads controllers from `app/src/**/Ui/Http/Api/` and adds the `/api` prefix.
 - The current HTTP controllers return JSON. The repository contains no runtime browser application, so such a consumer and its contracts are not inferred from external materials.
 - The public endpoint contract includes the path, HTTP method, input, response status, and JSON payload. Changing any of these elements changes the public HTTP surface and requires explicit task scope and behavior test updates.
-- The route name is an internal routing and security contract, not part of the public HTTP contract. New or changed route names require checking the `platform_` prefix, the role map and allowlist in `TenantGuardSubscriber`, and subscribers that react to a specific route.
+- The route name is an internal routing and security contract, not part of the public HTTP contract. New or changed route names require checking the `platform_` prefix, the route access requirements configuration and allowlist in `TenantGuardSubscriber`, and subscribers that react to a specific route.
+- After accounting for platform and allowlist exceptions, `TenantGuardSubscriber` only permits routes in `ADMIN_REQUIRED_ROUTE_NAMES`, requiring an active client administrator membership. Other routes covered by the guard are denied access. Adding a route for a regular member requires extending the configuration and handling of access requirements in the guard.
 
 ## 12. Test strategy (minimum)
 - Domain unit: test aggregate behavior with FakeOutside and deterministic time.

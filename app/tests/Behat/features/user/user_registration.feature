@@ -12,6 +12,24 @@ Feature: User registration
         And session should contain user id for "otp-user@example.com"
         And session should contain active client id for "acme"
 
+    Scenario Outline: OTP login selects an active membership and skips a suspended admin membership
+        Given there is a client "alpha"
+        And there is a client "beta"
+        And there is a user "mixed_member" with email "mixed-member@example.com"
+        And there is a membership of "mixed_member" in "<suspended_client>" with roles "admin"
+        And membership of "mixed_member" in "<suspended_client>" is suspended
+        And there is a membership of "mixed_member" in "<active_client>" with roles "user"
+        When I request OTP for email "mixed-member@example.com"
+        And I verify OTP for email "mixed-member@example.com" with code "123456"
+        Then OTP verify response should be ok true
+        And session should contain user id for "mixed-member@example.com"
+        And session should contain active client id for "<active_client>"
+
+        Examples:
+            | suspended_client | active_client |
+            | alpha            | beta          |
+            | beta             | alpha         |
+
     Scenario: OTP verify with invalid code does not log user in
         When I request OTP for email "otp-user-invalid@example.com"
         And I verify OTP for email "otp-user-invalid@example.com" with code "000000"

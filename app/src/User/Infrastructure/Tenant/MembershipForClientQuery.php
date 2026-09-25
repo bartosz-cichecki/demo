@@ -24,21 +24,8 @@ final readonly class MembershipForClientQuery implements MembershipForClientQuer
         }
 
         return new MembershipDto(
-            roles: $this->normalizeRoles($membership->roles),
-            status: $membership->status,
+            isActive: $membership->isActive,
+            isAdmin: $membership->isAdmin,
         );
-    }
-
-    /**
-     * @param array<string> $roles
-     *
-     * @return array<string>
-     */
-    private function normalizeRoles(array $roles): array
-    {
-        $roles = array_values(array_unique($roles));
-        sort($roles);
-
-        return $roles;
     }
 }
