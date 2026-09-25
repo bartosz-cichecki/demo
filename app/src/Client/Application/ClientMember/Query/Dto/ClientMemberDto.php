@@ -17,6 +17,8 @@ final readonly class ClientMemberDto
         public string $status,
         public string $createdAt,
         public string $updatedAt,
+        public bool $isActive,
+        public bool $isAdmin,
     ) {
     }
 }

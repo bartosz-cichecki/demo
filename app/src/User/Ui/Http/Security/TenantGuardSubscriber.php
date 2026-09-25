@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\User\Ui\Http\Security;
 
-use App\Client\Domain\ClientMember\ClientMember;
 use App\SharedKernel\Domain\ValueObject\Id;
 use App\SharedKernel\Ui\Http\Logging\AbuseLogger;
 use App\User\Application\Tenant\Query\MembershipForClientQueryInterface;
@@ -20,14 +19,14 @@ use Symfony\Component\HttpKernel\KernelEvents;
 final readonly class TenantGuardSubscriber
 {
     /**
-     * @var array<string, array<string>>
+     * @var array<string>
      */
-    private const array ROUTE_ROLES_MAP = [
-        'api_client_members_list' => [ClientMember::ROLE_ADMIN],
-        'api_client_members_provision' => [ClientMember::ROLE_ADMIN],
-        'api_client_members_replace_roles' => [ClientMember::ROLE_ADMIN],
-        'api_client_members_suspend' => [ClientMember::ROLE_ADMIN],
-        'api_client_members_unsuspend' => [ClientMember::ROLE_ADMIN],
+    private const array ADMIN_REQUIRED_ROUTE_NAMES = [
+        'api_client_members_list',
+        'api_client_members_provision',
+        'api_client_members_replace_roles',
+        'api_client_members_suspend',
+        'api_client_members_unsuspend',
     ];
 
     /**
@@ -122,26 +121,20 @@ final readonly class TenantGuardSubscriber
         }
 
         $membership = $this->membershipForClientQuery->findForUserAndClient($userId, $clientId);
-        if (null === $membership || ClientMember::STATUS_ACTIVE !== $membership->status) {
+        if (null === $membership || !$membership->isActive) {
             $event->setResponse($this->deny($request, Response::HTTP_FORBIDDEN, 'MEMBERSHIP_INACTIVE'));
 
             return;
         }
 
-        $allowedRoles = $this->resolveAllowedRoles($request->attributes->get('_route'));
-        if (null === $allowedRoles) {
+        $routeName = $request->attributes->get('_route');
+        if (!\is_string($routeName) || !\in_array($routeName, self::ADMIN_REQUIRED_ROUTE_NAMES, true)) {
             $event->setResponse($this->deny($request, Response::HTTP_FORBIDDEN, 'ROUTE_NOT_MAPPED'));
 
             return;
         }
 
-        if ([] === $membership->roles) {
-            $event->setResponse($this->deny($request, Response::HTTP_FORBIDDEN, 'NO_ROLES'));
-
-            return;
-        }
-
-        if ([] === array_intersect($membership->roles, $allowedRoles)) {
+        if (!$membership->isAdmin) {
             $event->setResponse($this->deny($request, Response::HTTP_FORBIDDEN, 'INSUFFICIENT_ROLES'));
         }
     }
@@ -194,22 +187,6 @@ final readonly class TenantGuardSubscriber
     private function shouldLogDeny(Request $request, string $reasonCode): bool
     {
         return 'CORS_MISMATCH' === $reasonCode;
-    }
-
-    /**
-     * @return array<string>|null
-     */
-    private function resolveAllowedRoles(mixed $routeName): ?array
-    {
-        if (!\is_string($routeName)) {
-            return null;
-        }
-
-        if (!\array_key_exists($routeName, self::ROUTE_ROLES_MAP)) {
-            return null;
-        }
-
-        return self::ROUTE_ROLES_MAP[$routeName];
     }
 
     private function passesCrossOriginChecks(Request $request): bool

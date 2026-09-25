@@ -262,7 +262,8 @@ Deptrac jest źródłem prawdy dla kierunku zależności.
 - Routing aplikacji ładuje kontrolery z `app/src/**/Ui/Http/Api/` i dodaje prefix `/api`.
 - Aktualne kontrolery HTTP zwracają JSON. Repozytorium nie zawiera runtime aplikacji przeglądarkowej, więc takiego konsumenta ani jego kontraktów nie zakładamy na podstawie materiałów zewnętrznych.
 - Publiczny kontrakt endpointu obejmuje ścieżkę, metodę HTTP, input, status odpowiedzi i payload JSON. Zmiana któregokolwiek z tych elementów jest zmianą publicznej powierzchni HTTP i wymaga jawnego zakresu zadania oraz aktualizacji testów zachowania.
-- Route name jest wewnętrznym kontraktem routingu i security, a nie częścią publicznego kontraktu HTTP. Nowe albo zmienione route names wymagają sprawdzenia prefiksu `platform_`, mapy ról i allowlisty `TenantGuardSubscriber` oraz subscriberów reagujących na konkretną route.
+- Route name jest wewnętrznym kontraktem routingu i security, a nie częścią publicznego kontraktu HTTP. Nowe albo zmienione route names wymagają sprawdzenia prefiksu `platform_`, konfiguracji wymagań dostępu dla tras i allowlisty `TenantGuardSubscriber` oraz subscriberów reagujących na konkretną route.
+- Po uwzględnieniu wyjątków dla platformy i allowlisty `TenantGuardSubscriber` dopuszcza tylko trasy z `ADMIN_REQUIRED_ROUTE_NAMES`, wymagając aktywnego członkostwa administratora klienta. Pozostałe trasy objęte guardem kończą się odmową dostępu. Dodanie trasy dla zwykłego członka wymaga rozszerzenia konfiguracji i obsługi wymagań dostępu w guardzie.
 
 ## 12. Test strategy (minimum)
 - Domain unit: testujemy zachowanie agregatów z FakeOutside i deterministycznym czasem.
