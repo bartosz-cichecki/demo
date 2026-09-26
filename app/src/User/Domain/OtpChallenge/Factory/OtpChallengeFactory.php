@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\User\Domain\OtpChallenge\Factory;
 
+use App\SharedKernel\Domain\ValueObject\DateTime;
 use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
 use App\User\Domain\OtpChallenge\OtpChallenge;
@@ -11,6 +12,8 @@ use App\User\Domain\OtpChallenge\Outside\OtpChallengeOutsideInterface;
 
 final readonly class OtpChallengeFactory implements OtpChallengeFactoryInterface
 {
+    private const int COOLDOWN_SECONDS = 60;
+
     public function __construct(
         private OtpChallengeOutsideInterface $otpChallengeOutside,
     ) {
@@ -21,7 +24,15 @@ final readonly class OtpChallengeFactory implements OtpChallengeFactoryInterface
         Email $email,
         ?string $ipAddress,
         ?string $userAgent,
-    ): OtpChallengeIssue {
+    ): ?OtpChallengeIssue {
+        $now = $this->otpChallengeOutside->now();
+        $emailLastSentAt = $this->otpChallengeOutside->findLatestSentAtByEmail($email);
+        $ipLastSentAt = null === $ipAddress ? null : $this->otpChallengeOutside->findLatestSentAtByIp($ipAddress);
+
+        if ($this->isCoolingDown($emailLastSentAt, $now) || $this->isCoolingDown($ipLastSentAt, $now)) {
+            return null;
+        }
+
         $plainCode = $this->otpChallengeOutside->generateCode();
 
         return new OtpChallengeIssue(
@@ -35,5 +46,11 @@ final readonly class OtpChallengeFactory implements OtpChallengeFactoryInterface
             ),
             $plainCode,
         );
+    }
+
+    private function isCoolingDown(?DateTime $lastSentAt, DateTime $now): bool
+    {
+        return null !== $lastSentAt
+            && $now->value < $lastSentAt->value->modify(\sprintf('+%d seconds', self::COOLDOWN_SECONDS));
     }
 }

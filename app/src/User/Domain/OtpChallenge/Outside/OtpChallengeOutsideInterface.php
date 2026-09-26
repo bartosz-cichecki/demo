@@ -6,10 +6,15 @@ namespace App\User\Domain\OtpChallenge\Outside;
 
 use App\SharedKernel\Domain\Event\DomainEvent;
 use App\SharedKernel\Domain\ValueObject\DateTime;
+use App\SharedKernel\Domain\ValueObject\Email;
 
 interface OtpChallengeOutsideInterface
 {
     public function now(): DateTime;
+
+    public function findLatestSentAtByEmail(Email $email): ?DateTime;
+
+    public function findLatestSentAtByIp(string $ipAddress): ?DateTime;
 
     public function record(DomainEvent $event): void;
 
