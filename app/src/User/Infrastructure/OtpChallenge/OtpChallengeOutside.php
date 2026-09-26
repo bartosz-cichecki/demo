@@ -8,7 +8,9 @@ use App\SharedKernel\Domain\Clock\ClockInterface;
 use App\SharedKernel\Domain\Event\DomainEvent;
 use App\SharedKernel\Domain\Event\DomainEventsRecorder;
 use App\SharedKernel\Domain\ValueObject\DateTime;
+use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Infrastructure\Outside\Attribute\AsOutsideFor;
+use App\User\Application\OtpChallenge\Query\OtpChallengeQueryInterface;
 use App\User\Application\OtpChallenge\Service\ValueHasherServiceInterface;
 use App\User\Domain\OtpChallenge\Outside\OtpChallengeOutsideInterface;
 
@@ -19,12 +21,27 @@ final readonly class OtpChallengeOutside implements OtpChallengeOutsideInterface
         private DomainEventsRecorder $domainEventsRecorder,
         private ValueHasherServiceInterface $valueHasher,
         private ClockInterface $clock,
+        private OtpChallengeQueryInterface $otpChallengeQuery,
     ) {
     }
 
     public function now(): DateTime
     {
         return $this->clock->now();
+    }
+
+    public function findLatestSentAtByEmail(Email $email): ?DateTime
+    {
+        $result = $this->otpChallengeQuery->findLatestSentAtByEmail($email);
+
+        return null === $result ? null : DateTime::fromStorageString($result->lastSentAt);
+    }
+
+    public function findLatestSentAtByIp(string $ipAddress): ?DateTime
+    {
+        $result = $this->otpChallengeQuery->findLatestSentAtByIpHash($this->valueHasher->hash($ipAddress));
+
+        return null === $result ? null : DateTime::fromStorageString($result->lastSentAt);
     }
 
     public function record(DomainEvent $event): void

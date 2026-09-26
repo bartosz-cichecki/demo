@@ -29,6 +29,8 @@ final class UserContext implements Context
     private const int OTP_MAX_ATTEMPTS = 5;
     private const string OTP_COOLDOWN_ELAPSED_MODIFIER = '+61 seconds';
 
+    private ?string $deliveredOtpCode = null;
+
     public function __construct(
         private readonly KernelBrowser $client,
         private readonly Connection $connection,
@@ -39,6 +41,7 @@ final class UserContext implements Context
         private readonly MutableClock $clock,
         private readonly KernelInterface $kernel,
         private readonly string $userNotificationLogPath,
+        private readonly string $otpMailboxPath,
     ) {
     }
 
@@ -51,17 +54,86 @@ final class UserContext implements Context
      */
     public function iRequestOtpForEmail(string $email): void
     {
+        $this->iRequestOtpForEmailFromIp($email, '127.0.0.1');
+    }
+
+    /**
+     * @When I request OTP for email :email from IP :ipAddress
+     */
+    public function iRequestOtpForEmailFromIp(string $email, string $ipAddress): void
+    {
         $this->client->request(
             'POST',
             '/api/auth/otp/request',
             [],
             [],
-            ['CONTENT_TYPE' => 'application/json'],
+            ['CONTENT_TYPE' => 'application/json', 'REMOTE_ADDR' => $ipAddress],
             json_encode(['email' => $email], \JSON_THROW_ON_ERROR),
         );
 
         $response = $this->client->getResponse();
         Assert::assertSame(200, $response->getStatusCode());
+        Assert::assertSame('{"ok":true}', $response->getContent());
+    }
+
+    /**
+     * @Then I can read the delivered OTP for :email from the demo mailbox
+     */
+    public function iCanReadTheDeliveredOtpFromTheDemoMailbox(string $email): void
+    {
+        $messages = array_values(array_filter(
+            $this->otpMessages(),
+            static fn (array $message): bool => $message['email'] === (string) Email::fromString($email),
+        ));
+        Assert::assertNotEmpty($messages);
+        $this->deliveredOtpCode = $messages[\count($messages) - 1]['code'];
+        Assert::assertMatchesRegularExpression('/^[0-9]{6}$/D', $this->deliveredOtpCode);
+
+        $hash = $this->connection->fetchOne(
+            'SELECT code_hash FROM "user".otp_challenges WHERE email = :email ORDER BY last_sent_at DESC LIMIT 1',
+            ['email' => (string) Email::fromString($email)],
+        );
+        Assert::assertIsString($hash);
+        Assert::assertNotSame($this->deliveredOtpCode, $hash);
+        Assert::assertTrue(password_verify($this->deliveredOtpCode, $hash));
+    }
+
+    /**
+     * @When I verify OTP for email :email with the delivered code
+     */
+    public function iVerifyOtpForEmailWithTheDeliveredCode(string $email): void
+    {
+        Assert::assertNotNull($this->deliveredOtpCode);
+        $this->iVerifyOtpForEmailWithCode($email, $this->deliveredOtpCode);
+    }
+
+    /**
+     * @Then the demo mailbox should contain :count OTP messages
+     */
+    public function theDemoMailboxShouldContainOtpMessages(int $count): void
+    {
+        Assert::assertCount($count, $this->otpMessages());
+    }
+
+    /**
+     * @Then there should be :count OTP challenges for :email
+     */
+    public function thereShouldBeOtpChallengesFor(int $count, string $email): void
+    {
+        $actual = $this->connection->fetchOne(
+            'SELECT COUNT(*) FROM "user".otp_challenges WHERE email = :email',
+            ['email' => (string) Email::fromString($email)],
+        );
+        Assert::assertSame($count, $this->intValue($actual));
+    }
+
+    /**
+     * @Then there should be :count OTP challenges in total
+     */
+    public function thereShouldBeOtpChallengesInTotal(int $count): void
+    {
+        $actual = $this->connection->fetchOne('SELECT COUNT(*) FROM "user".otp_challenges');
+        Assert::assertSame($count, $this->intValue($actual));
     }
 
     /**
@@ -80,6 +152,19 @@ final class UserContext implements Context
 
         $response = $this->client->getResponse();
         Assert::assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * @Given OTP was requested for :email from IP :ipAddress :seconds seconds ago
+     */
+    public function otpWasRequestedSecondsAgo(string $email, string $ipAddress, int $seconds): void
+    {
+        $this->clock->modify(\sprintf('-%d seconds', $seconds));
+        try {
+            $this->commandBus->dispatch(new RequestOtpCommand(Email::fromString($email), $ipAddress));
+        } finally {
+            $this->clock->modify(\sprintf('+%d seconds', $seconds));
+        }
     }
 
     /**
@@ -282,6 +367,29 @@ final class UserContext implements Context
             $lines,
             static fn (string $line): bool => str_contains($line, ' email=' . (string) Email::fromString($email) . ' '),
         ));
+    }
+
+    /** @return list<array{email: string, code: string}> */
+    private function otpMessages(): array
+    {
+        if (!is_file($this->otpMailboxPath)) {
+            return [];
+        }
+
+        $lines = file($this->otpMailboxPath, \FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES);
+        Assert::assertNotFalse($lines);
+        $messages = [];
+        foreach ($lines as $line) {
+            $message = json_decode($line, true, 512, \JSON_THROW_ON_ERROR);
+            Assert::assertIsArray($message);
+            Assert::assertArrayHasKey('email', $message);
+            Assert::assertArrayHasKey('code', $message);
+            Assert::assertIsString($message['email']);
+            Assert::assertIsString($message['code']);
+            $messages[] = ['email' => $message['email'], 'code' => $message['code']];
+        }
+
+        return $messages;
     }
 
     private function intValue(mixed $value): int

@@ -24,6 +24,7 @@ final class FixtureContext implements Context
         private readonly Connection $connection,
         private readonly UserQueryInterface $userQuery,
         private readonly string $userNotificationLogPath,
+        private readonly string $otpMailboxPath,
     ) {
     }
 
@@ -43,6 +44,9 @@ final class FixtureContext implements Context
 
         if (is_file($this->userNotificationLogPath)) {
             unlink($this->userNotificationLogPath);
+        }
+        if (is_file($this->otpMailboxPath)) {
+            unlink($this->otpMailboxPath);
         }
     }
 

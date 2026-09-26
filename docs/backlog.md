@@ -22,7 +22,7 @@ This backlog is not a list of every tool that could be added to the repository. 
 | Priority | Topic | Status | Updated | Done | Why |
 |---:|---|---|---|---|---|
 | 1 | GitHub Actions CI | DONE | 2026-07-14 | 2026-07-14 | Prove quality gates on push/PR |
-| 2 | OTP cooldown decision in Domain | TODO | 2026-09-26 | — | Apply architecture §6–6.1 to OTP issuance |
+| 2 | OTP cooldown decision in Domain | DONE | 2026-09-26 | 2026-09-26 | Apply architecture §6–6.1 to OTP issuance |
 | 3 | OTP verification attempt limit in Domain | TODO | 2026-09-26 | — | Keep the rule in the aggregate and commit failed attempts |
 | 4 | Client membership uniqueness in Domain | TODO | 2026-09-26 | — | Centralize validation shared by both creation handlers |
 | 5 | Mermaid architecture flow | TODO | 2026-04-30 | — | Show the main architecture flow in 30 seconds |
@@ -63,15 +63,15 @@ Completion note (2026-07-14): the workflow passed the full set of quality gates 
 
 ## 2. OTP cooldown decision in Domain
 
-Status: `TODO`
+Status: `DONE`
 
 ### Why
 
-`OtpRateLimitQuery::check()` currently owns the 60-second cooldown and compares the last send times with the current time. `RequestOtpCommandHandler` acts on its `isAllowed` result. Architecture §6–6.1 requires Infrastructure to provide facts and Domain to own the business decision.
+Previously, `OtpRateLimitQuery::check()` owned the 60-second cooldown and compared the last send times with the current time. `RequestOtpCommandHandler` acted on its `isAllowed` result. Architecture §6–6.1 requires Infrastructure to provide facts and Domain to own the business decision.
 
 ### Scope
 
-- Extend the existing `OtpChallengeOutsideInterface` with reads for the latest send times by email and IP. Accept the unhashed email (using the existing `Email` value object) and raw IP address; hash the IP inside Infrastructure, as the current query does. Domain must not assemble a lookup key through `hashIp()`.
+- Extend the existing `OtpChallengeOutsideInterface` with reads for the latest send times by email and IP. Accept the unhashed email (using the existing `Email` value object) and raw IP address; hash the IP inside Infrastructure. Domain must not assemble a lookup key through `hashIp()`.
 - Reuse the existing DBAL read logic behind Outside, replacing the query contract that returns a decision with reads that return facts. Remove obsolete rate-limit query/DTO code once unused.
 - Put `COOLDOWN_SECONDS = 60` and the issuance decision in the existing `OtpChallengeFactory`, using Outside for facts and current time. Check before generating the code or constructing the challenge.
 - Return no issue when blocked, for example through a nullable factory result. The handler persists an issued challenge or returns without writing; it does not calculate the cooldown or access Outside.
@@ -88,7 +88,9 @@ Status: `TODO`
 
 Use the existing factory and Outside; a separate policy is optional, not a prerequisite. This task does not add configurable limits, new infrastructure, or atomic rate limiting across concurrent requests. Follow architecture §5.2, §6–6.2 and §11.1.
 
-Implementation evidence: [current rate-limit query](../app/src/User/Infrastructure/OtpChallenge/RateLimit/OtpRateLimitQuery.php), [request handler](../app/src/User/Application/OtpChallenge/Command/RequestOtp/RequestOtpCommandHandler.php), [factory](../app/src/User/Domain/OtpChallenge/Factory/OtpChallengeFactory.php), and [Outside](../app/src/User/Infrastructure/OtpChallenge/OtpChallengeOutside.php).
+Completion note (2026-09-26): `OtpChallengeFactory` owns the cooldown and returns `null` before code generation when blocked. Outside hashes IP and maps facts read through `OtpChallengeQueryInterface`; SQL lives in `OtpChallengeQuery`. The obsolete rate-limit query, interface and DTO were removed. The delivered scope also includes `OtpCodeSenderServiceInterface` with local file delivery and Behat coverage of request → mailbox → verify → login. File delivery precedes commit and is not rolled back on a later commit failure. All five quality gates passed sequentially: `make cs-check`, `make phpstan`, `make deptrac-ci`, `make test` (174 tests), and `make behat` (28 scenarios).
+
+Implementation evidence: [factory](../app/src/User/Domain/OtpChallenge/Factory/OtpChallengeFactory.php), [Outside](../app/src/User/Infrastructure/OtpChallenge/OtpChallengeOutside.php), [query](../app/src/User/Infrastructure/OtpChallenge/OtpChallengeQuery.php), [request handler](../app/src/User/Application/OtpChallenge/Command/RequestOtp/RequestOtpCommandHandler.php), and [file sender](../app/src/User/Infrastructure/OtpChallenge/FileOtpCodeSenderService.php). Verification: [domain tests](../app/tests/User/Domain/OtpChallenge/OtpChallengeFactoryTest.php), [handler tests](../app/tests/User/Application/OtpChallenge/RequestOtpCommandHandlerTest.php), and [Behat scenarios](../app/tests/Behat/features/user/user_registration.feature).
 
 ---
 

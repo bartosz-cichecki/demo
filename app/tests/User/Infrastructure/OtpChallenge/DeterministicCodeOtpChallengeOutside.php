@@ -6,6 +6,7 @@ namespace App\Tests\User\Infrastructure\OtpChallenge;
 
 use App\SharedKernel\Domain\Event\DomainEvent;
 use App\SharedKernel\Domain\ValueObject\DateTime;
+use App\SharedKernel\Domain\ValueObject\Email;
 use App\User\Domain\OtpChallenge\Outside\OtpChallengeOutsideInterface;
 
 final readonly class DeterministicCodeOtpChallengeOutside implements OtpChallengeOutsideInterface
@@ -23,6 +24,16 @@ final readonly class DeterministicCodeOtpChallengeOutside implements OtpChalleng
     public function record(DomainEvent $event): void
     {
         $this->inner->record($event);
+    }
+
+    public function findLatestSentAtByEmail(Email $email): ?DateTime
+    {
+        return $this->inner->findLatestSentAtByEmail($email);
+    }
+
+    public function findLatestSentAtByIp(string $ipAddress): ?DateTime
+    {
+        return $this->inner->findLatestSentAtByIp($ipAddress);
     }
 
     public function generateCode(): string

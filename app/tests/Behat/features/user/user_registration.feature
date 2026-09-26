@@ -5,12 +5,47 @@ Feature: User registration
         And there is a user "otp_user" with email "otp-user@example.com"
         And there is a membership of "otp_user" in "acme" with roles "user"
         When I request OTP for email "otp-user@example.com"
-        And I verify OTP for email "otp-user@example.com" with code "123456"
+        Then I can read the delivered OTP for "otp-user@example.com" from the demo mailbox
+        And the demo mailbox should contain 1 OTP messages
+        And there should be 1 OTP challenges for "otp-user@example.com"
+        When I verify OTP for email "otp-user@example.com" with the delivered code
         Then OTP verify response should be ok true
         And the latest OTP challenge for "otp-user@example.com" should be consumed
         And the user with email "otp-user@example.com" should be logged in
         And session should contain user id for "otp-user@example.com"
         And session should contain active client id for "acme"
+
+    Scenario Outline: Cooldown silently blocks delivery for the same email or IP
+        When I request OTP for email "cooldown@example.com" from IP "192.0.2.1"
+        And I request OTP for email "<email>" from IP "<ip>"
+        Then the demo mailbox should contain 1 OTP messages
+        And there should be 1 OTP challenges for "cooldown@example.com"
+        And there should be 1 OTP challenges in total
+
+        Examples:
+            | email                | ip        |
+            | cooldown@example.com | 192.0.2.1 |
+            | cooldown@example.com | 192.0.2.2 |
+            | another@example.com  | 192.0.2.1 |
+
+    Scenario Outline: Cooldown ends exactly 60 seconds after issuance
+        Given OTP was requested for "boundary@example.com" from IP "192.0.2.1" <seconds> seconds ago
+        When I request OTP for email "boundary@example.com" from IP "192.0.2.1"
+        Then the demo mailbox should contain <count> OTP messages
+        And there should be <count> OTP challenges for "boundary@example.com"
+
+        Examples:
+            | seconds | count |
+            | 59      | 1     |
+            | 60      | 2     |
+
+    Scenario: A different email and IP can receive OTP independently
+        When I request OTP for email "first@example.com" from IP "192.0.2.1"
+        And I request OTP for email "second@example.com" from IP "192.0.2.2"
+        Then the demo mailbox should contain 2 OTP messages
+        And there should be 1 OTP challenges for "first@example.com"
+        And there should be 1 OTP challenges for "second@example.com"
+        And I can read the delivered OTP for "second@example.com" from the demo mailbox
 
     Scenario Outline: OTP login selects an active membership and skips a suspended admin membership
         Given there is a client "alpha"

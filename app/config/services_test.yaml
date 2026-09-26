@@ -1,5 +1,6 @@
 parameters:
     app.platform_admin_emails: ['admin@example.com']
+    app.otp_mailbox_path: '%kernel.project_dir%/var/notifications/otp.test.jsonl'
 
 services:
     _defaults:
@@ -24,6 +25,7 @@ services:
         resource: '../tests/Behat/*'
         bind:
             string $userNotificationLogPath: '%app.user_registered_notification_log_path%'
+            string $otpMailboxPath: '%app.otp_mailbox_path%'
 
     # Deterministic OTP code for test environment
     App\Tests\User\Infrastructure\OtpChallenge\DeterministicCodeOtpChallengeOutside:

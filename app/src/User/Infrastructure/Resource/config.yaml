@@ -1,7 +1,12 @@
 parameters:
+    app.otp_mailbox_path: '%kernel.project_dir%/var/notifications/otp.jsonl'
     app.user_registered_notification_log_path: '%kernel.project_dir%/var/notifications/user_registered.log'
 
 services:
+    App\User\Infrastructure\OtpChallenge\FileOtpCodeSenderService:
+        arguments:
+            $filePath: '%app.otp_mailbox_path%'
+
     App\User\Infrastructure\Notification\FileUserNotificationSenderService:
         arguments:
             $filePath: '%app.user_registered_notification_log_path%'

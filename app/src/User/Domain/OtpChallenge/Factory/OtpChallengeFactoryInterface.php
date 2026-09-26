@@ -14,5 +14,5 @@ interface OtpChallengeFactoryInterface
         Email $email,
         ?string $ipAddress,
         ?string $userAgent,
-    ): OtpChallengeIssue;
+    ): ?OtpChallengeIssue;
 }

@@ -6,6 +6,7 @@ namespace App\User\Infrastructure\OtpChallenge;
 
 use App\SharedKernel\Domain\ValueObject\Email;
 use App\User\Application\OtpChallenge\Query\Dto\OtpChallengeDto;
+use App\User\Application\OtpChallenge\Query\Dto\OtpChallengeLastSentAtDto;
 use App\User\Application\OtpChallenge\Query\OtpChallengeQueryInterface;
 use Doctrine\DBAL\Connection;
 
@@ -34,5 +35,25 @@ final readonly class OtpChallengeQuery implements OtpChallengeQueryInterface
             attempts: (int) $row['attempts'],
             consumedAt: $row['consumed_at'],
         );
+    }
+
+    public function findLatestSentAtByEmail(Email $email): ?OtpChallengeLastSentAtDto
+    {
+        $value = $this->connection->fetchOne(
+            'SELECT last_sent_at FROM "user".otp_challenges WHERE email = :email ORDER BY last_sent_at DESC LIMIT 1',
+            ['email' => (string) $email],
+        );
+
+        return \is_string($value) ? new OtpChallengeLastSentAtDto($value) : null;
+    }
+
+    public function findLatestSentAtByIpHash(string $ipHash): ?OtpChallengeLastSentAtDto
+    {
+        $value = $this->connection->fetchOne(
+            'SELECT last_sent_at FROM "user".otp_challenges WHERE ip_hash = :ip_hash ORDER BY last_sent_at DESC LIMIT 1',
+            ['ip_hash' => $ipHash],
+        );
+
+        return \is_string($value) ? new OtpChallengeLastSentAtDto($value) : null;
     }
 }
