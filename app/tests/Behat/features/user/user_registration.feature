@@ -69,6 +69,7 @@ Feature: User registration
         When I request OTP for email "otp-user-invalid@example.com"
         And I verify OTP for email "otp-user-invalid@example.com" with code "000000"
         Then OTP verify response should be ok false
+        And the latest OTP challenge for "otp-user-invalid@example.com" should have 1 attempts
         And session should not contain user id
 
     Scenario: OTP challenge is locked after five separate invalid verification requests
@@ -77,21 +78,56 @@ Feature: User registration
         And there is a membership of "otp_lock_user" in "otp-lock-client" with roles "user"
         When I request OTP for email "otp-lock@example.com"
         And I verify OTP for email "otp-lock@example.com" with code "000000"
-        And I verify OTP for email "otp-lock@example.com" with code "000000"
-        And I verify OTP for email "otp-lock@example.com" with code "000000"
-        And I verify OTP for email "otp-lock@example.com" with code "000000"
-        And I verify OTP for email "otp-lock@example.com" with code "000000"
+        Then OTP verify response should be ok false
+        And the latest OTP challenge for "otp-lock@example.com" should have 1 attempts
+        When I verify OTP for email "otp-lock@example.com" with code "000000"
+        Then OTP verify response should be ok false
+        And the latest OTP challenge for "otp-lock@example.com" should have 2 attempts
+        When I verify OTP for email "otp-lock@example.com" with code "000000"
+        Then OTP verify response should be ok false
+        And the latest OTP challenge for "otp-lock@example.com" should have 3 attempts
+        When I verify OTP for email "otp-lock@example.com" with code "000000"
+        Then OTP verify response should be ok false
+        And the latest OTP challenge for "otp-lock@example.com" should have 4 attempts
+        When I verify OTP for email "otp-lock@example.com" with code "000000"
         Then OTP verify response should be ok false
         And the latest OTP challenge for "otp-lock@example.com" should have 5 attempts
         When I verify OTP for email "otp-lock@example.com" with code "123456"
         Then OTP verify response should be ok false
+        And the latest OTP challenge for "otp-lock@example.com" should have 5 attempts
+        And session should not contain user id
+        When I verify OTP for email "otp-lock@example.com" with code "000000"
+        Then OTP verify response should be ok false
+        And the latest OTP challenge for "otp-lock@example.com" should have 5 attempts
+        And session should not contain user id
+
+    Scenario: Correct OTP after four failed attempts logs in and cannot be reused
+        Given there is a client "otp-last-attempt-client"
+        And there is a user "otp_last_attempt_user" with email "otp-last-attempt@example.com"
+        And there is a membership of "otp_last_attempt_user" in "otp-last-attempt-client" with roles "user"
+        And an OTP challenge with 4 failed attempts exists for email "otp-last-attempt@example.com"
+        When I verify OTP for email "otp-last-attempt@example.com" with code "123456"
+        Then OTP verify response should be ok true
+        And the latest OTP challenge for "otp-last-attempt@example.com" should have 4 attempts
+        And the latest OTP challenge for "otp-last-attempt@example.com" should be consumed
+        And session should contain user id for "otp-last-attempt@example.com"
+        When I verify OTP for email "otp-last-attempt@example.com" with code "123456"
+        Then OTP verify response should be ok false
+        And the latest OTP challenge for "otp-last-attempt@example.com" should have 4 attempts
+
+    Scenario: Expired OTP is rejected without incrementing attempts
+        Given OTP was requested for "otp-expired@example.com" from IP "192.0.2.1" 601 seconds ago
+        When I verify OTP for email "otp-expired@example.com" with code "123456"
+        Then OTP verify response should be ok false
+        And the latest OTP challenge for "otp-expired@example.com" should have 0 attempts
+        And the latest OTP challenge for "otp-expired@example.com" should not be consumed
         And session should not contain user id
 
     Scenario: Fresh OTP challenge allows verification after the previous challenge was exhausted
         Given there is a client "otp-recovery-client"
         And there is a user "otp_recovery_user" with email "otp-recovery@example.com"
         And there is a membership of "otp_recovery_user" in "otp-recovery-client" with roles "user"
-        And an exhausted OTP challenge exists for email "otp-recovery@example.com"
+        And an OTP challenge with 5 failed attempts exists for email "otp-recovery@example.com"
         And a fresh OTP challenge exists for email "otp-recovery@example.com"
         When I verify OTP for email "otp-recovery@example.com" with code "123456"
         Then OTP verify response should be ok true

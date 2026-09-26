@@ -17,6 +17,7 @@ use Doctrine\ORM\Mapping as ORM;
 final class OtpChallenge
 {
     private const int TTL_MINUTES = 10;
+    private const int MAX_ATTEMPTS = 5;
 
     #[OutsideField]
     private ?OtpChallengeOutsideInterface $outside = null;
@@ -79,7 +80,7 @@ final class OtpChallenge
         }
     }
 
-    public function verify(string $plainCode, int $maxAttempts): bool
+    public function verify(string $plainCode): bool
     {
         if (null !== $this->consumedAt) {
             return false;
@@ -90,7 +91,7 @@ final class OtpChallenge
         if ($now->value > $this->expiresAt->value) {
             return false;
         }
-        if ($this->attempts >= $maxAttempts) {
+        if ($this->attempts >= self::MAX_ATTEMPTS) {
             return false;
         }
         if (!$this->outside()->verifyCode($plainCode, $this->codeHash)) {

@@ -42,7 +42,7 @@ final class OtpChallengeFactoryTest extends TestCase
         $this->assertSame([], $collector->pull());
 
         if (null !== $issue) {
-            $this->assertTrue($issue->challenge->verify($issue->plainCode, 5));
+            $this->assertTrue($issue->challenge->verify($issue->plainCode));
         }
     }
 

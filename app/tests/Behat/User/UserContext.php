@@ -26,7 +26,6 @@ use Symfony\Component\HttpKernel\KernelInterface;
 
 final class UserContext implements Context
 {
-    private const int OTP_MAX_ATTEMPTS = 5;
     private const string OTP_COOLDOWN_ELAPSED_MODIFIER = '+61 seconds';
 
     private ?string $deliveredOtpCode = null;
@@ -177,14 +176,14 @@ final class UserContext implements Context
     }
 
     /**
-     * @Given an exhausted OTP challenge exists for email :email
+     * @Given an OTP challenge with :attempts failed attempts exists for email :email
      */
-    public function anExhaustedOtpChallengeExistsForEmail(string $email): void
+    public function anOtpChallengeWithFailedAttemptsExistsForEmail(int $attempts, string $email): void
     {
         $emailValue = Email::fromString($email);
         $this->commandBus->dispatch(new RequestOtpCommand($emailValue));
 
-        for ($attempt = 0; $attempt < self::OTP_MAX_ATTEMPTS; ++$attempt) {
+        for ($attempt = 0; $attempt < $attempts; ++$attempt) {
             $result = $this->commandBus->dispatchWithResult(new VerifyOtpCommand($emailValue, '000000'));
             Assert::assertFalse($result->verified, 'OTP fixture code must be invalid.');
         }
@@ -232,6 +231,17 @@ final class UserContext implements Context
 
         Assert::assertNotNull($challenge, 'OTP challenge not found');
         Assert::assertNotNull($challenge->consumedAt);
+    }
+
+    /**
+     * @Then the latest OTP challenge for :email should not be consumed
+     */
+    public function theLatestOtpChallengeForShouldNotBeConsumed(string $email): void
+    {
+        $challenge = $this->otpChallengeQuery->findLatestByEmail(Email::fromString($email));
+
+        Assert::assertNotNull($challenge, 'OTP challenge not found');
+        Assert::assertNull($challenge->consumedAt);
     }
 
     /**
@@ -322,8 +332,7 @@ final class UserContext implements Context
 
         /** @var array{ok: bool} $data */
         $data = json_decode($content, true, 512, \JSON_THROW_ON_ERROR);
-        Assert::assertArrayHasKey('ok', $data);
-        Assert::assertTrue($data['ok']);
+        Assert::assertSame(['ok' => true], $data);
     }
 
     /**
@@ -339,8 +348,7 @@ final class UserContext implements Context
 
         /** @var array{ok: bool} $data */
         $data = json_decode($content, true, 512, \JSON_THROW_ON_ERROR);
-        Assert::assertArrayHasKey('ok', $data);
-        Assert::assertFalse($data['ok']);
+        Assert::assertSame(['ok' => false], $data);
     }
 
     /**
