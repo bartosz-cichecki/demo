@@ -33,7 +33,7 @@ final class RequestOtpCommandHandlerTest extends TestCase
         $sender->expects($this->once())->method('send')->with($email, '123456')->willReturnCallback(
             function (Email $recipient, string $plainCode) use (&$savedChallenge): void {
                 $this->assertInstanceOf(OtpChallenge::class, $savedChallenge);
-                $this->assertTrue($savedChallenge->verify($plainCode, 5));
+                $this->assertTrue($savedChallenge->verify($plainCode));
             },
         );
 

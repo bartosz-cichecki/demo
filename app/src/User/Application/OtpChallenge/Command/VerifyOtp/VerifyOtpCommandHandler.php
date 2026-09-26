@@ -8,8 +8,6 @@ use App\User\Domain\OtpChallenge\Repository\OtpChallengeRepositoryInterface;
 
 final readonly class VerifyOtpCommandHandler
 {
-    private const int MAX_ATTEMPTS = 5;
-
     public function __construct(
         private OtpChallengeRepositoryInterface $otpChallengeRepository,
     ) {
@@ -23,6 +21,6 @@ final readonly class VerifyOtpCommandHandler
             return new VerifyOtpResult(false);
         }
 
-        return new VerifyOtpResult($challenge->verify($command->code, self::MAX_ATTEMPTS));
+        return new VerifyOtpResult($challenge->verify($command->code));
     }
 }

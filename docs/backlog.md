@@ -23,7 +23,7 @@ This backlog is not a list of every tool that could be added to the repository. 
 |---:|---|---|---|---|---|
 | 1 | GitHub Actions CI | DONE | 2026-07-14 | 2026-07-14 | Prove quality gates on push/PR |
 | 2 | OTP cooldown decision in Domain | DONE | 2026-09-26 | 2026-09-26 | Apply architecture §6–6.1 to OTP issuance |
-| 3 | OTP verification attempt limit in Domain | TODO | 2026-09-26 | — | Keep the rule in the aggregate and commit failed attempts |
+| 3 | OTP verification attempt limit in Domain | DONE | 2026-09-26 | 2026-09-26 | Keep the rule in the aggregate and commit failed attempts |
 | 4 | Client membership uniqueness in Domain | TODO | 2026-09-26 | — | Centralize validation shared by both creation handlers |
 | 5 | Mermaid architecture flow | TODO | 2026-04-30 | — | Show the main architecture flow in 30 seconds |
 | 6 | README first screen polish | TODO | 2026-04-30 | — | Explain quickly what the demo is and what it proves |
@@ -96,11 +96,11 @@ Implementation evidence: [factory](../app/src/User/Domain/OtpChallenge/Factory/O
 
 ## 3. OTP verification attempt limit in Domain
 
-Status: `TODO`
+Status: `DONE`
 
 ### Why
 
-`VerifyOtpCommandHandler` currently supplies `MAX_ATTEMPTS = 5` to the aggregate. The aggregate should own this rule. Returning verification failure as a value is intentional: a wrong code increments the attempt counter, and that change must commit even though authentication is refused.
+`OtpChallenge` owns `MAX_ATTEMPTS = 5`; `VerifyOtpCommandHandler` calls `verify(code)` without supplying a limit. Returning verification failure as a value is intentional: a wrong code increments the attempt counter, and that change must commit even though authentication is refused.
 
 ### Scope
 
@@ -120,6 +120,8 @@ Status: `TODO`
 No new policy, configuration, or transaction mechanism is needed. Apply architecture §6–6.1 while retaining the command-result contract in §5.1 and central transaction ownership in §9.
 
 Implementation evidence: [verification handler](../app/src/User/Application/OtpChallenge/Command/VerifyOtp/VerifyOtpCommandHandler.php), [aggregate](../app/src/User/Domain/OtpChallenge/OtpChallenge.php), [CommandBus](../app/src/SharedKernel/Infrastructure/CommandBus/CommandBus.php), [HTTP controller](../app/src/User/Ui/Http/Api/OtpAuthController.php), and [domain tests](../app/tests/User/Domain/OtpChallenge/OtpChallengeTest.php).
+
+Verification: [Behat scenarios](../app/tests/Behat/features/user/user_registration.feature) assert persisted counters after each failed request, refusal after exhaustion, success before exhaustion, expiry, already-consumed challenges, and the unchanged HTTP response. All five required quality gates passed.
 
 ---
 

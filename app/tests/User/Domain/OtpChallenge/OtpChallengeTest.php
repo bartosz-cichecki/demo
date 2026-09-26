@@ -9,6 +9,7 @@ use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
 use App\User\Domain\OtpChallenge\Event\OtpChallengeVerified;
 use App\User\Domain\OtpChallenge\OtpChallenge;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class OtpChallengeTest extends TestCase
@@ -22,7 +23,7 @@ final class OtpChallengeTest extends TestCase
         [$challenge, $collector, , $outside] = $this->createChallenge('  John@EXAMPLE.com  ');
 
         // verify with correct code to check the challenge works — event carries normalized email
-        $result = $challenge->verify('123456', 3);
+        $result = $challenge->verify('123456');
 
         $this->assertTrue($result);
         $events = $collector->pull();
@@ -47,7 +48,7 @@ final class OtpChallengeTest extends TestCase
     {
         [$challenge, $collector, $id] = $this->createChallenge();
 
-        $result = $challenge->verify('123456', 3);
+        $result = $challenge->verify('123456');
 
         $this->assertTrue($result);
         $events = $collector->pull();
@@ -65,42 +66,53 @@ final class OtpChallengeTest extends TestCase
     {
         [$challenge, $collector] = $this->createChallenge();
 
-        $result = $challenge->verify('000000', 3);
+        $result = $challenge->verify('000000');
 
         $this->assertFalse($result);
         $this->assertCount(0, $collector->pull());
     }
 
-    public function testVerifyWrongCodeIncrementsAttempts(): void
+    #[DataProvider('attemptsBeforeExhaustion')]
+    public function testVerifySucceedsBeforeAttemptsAreExhausted(int $wrongAttempts): void
     {
-        [$challenge] = $this->createChallenge();
+        [$challenge, $collector] = $this->createChallenge();
 
-        // Use 2 wrong attempts
-        $challenge->verify('000000', 3);
-        $challenge->verify('000000', 3);
+        for ($attempt = 0; $attempt < $wrongAttempts; ++$attempt) {
+            $this->assertFalse($challenge->verify('000000'));
+        }
+        $this->assertCount(0, $collector->pull());
 
-        // 3rd wrong attempt — still under limit, but increments to 3
-        $challenge->verify('000000', 3);
+        $this->assertTrue($challenge->verify('123456'));
+        $events = $collector->pull();
+        $this->assertCount(1, $events);
+        $this->assertInstanceOf(OtpChallengeVerified::class, $events[0]);
+    }
 
-        // Now at maxAttempts — even correct code should fail
-        $result = $challenge->verify('123456', 3);
-        $this->assertFalse($result);
+    /** @return iterable<string, array{int}> */
+    public static function attemptsBeforeExhaustion(): iterable
+    {
+        yield 'no wrong attempts' => [0];
+        yield 'one wrong attempt' => [1];
+        yield 'two wrong attempts' => [2];
+        yield 'three wrong attempts' => [3];
+        yield 'four wrong attempts' => [4];
     }
 
     // ========================================
     // Verify — max attempts reached
     // ========================================
 
-    public function testVerifyFailsWhenMaxAttemptsReached(): void
+    public function testVerifyFailsAfterFiveWrongAttempts(): void
     {
-        [$challenge] = $this->createChallenge();
+        [$challenge, $collector] = $this->createChallenge();
 
-        // Exhaust attempts
-        $challenge->verify('000000', 1);
+        for ($attempt = 0; $attempt < 5; ++$attempt) {
+            $this->assertFalse($challenge->verify('000000'));
+        }
 
-        // Correct code but too late
-        $result = $challenge->verify('123456', 1);
-        $this->assertFalse($result);
+        $this->assertFalse($challenge->verify('123456'));
+        $this->assertFalse($challenge->verify('000000'));
+        $this->assertCount(0, $collector->pull());
     }
 
     // ========================================
@@ -111,9 +123,9 @@ final class OtpChallengeTest extends TestCase
     {
         [$challenge, $collector, , $outside] = $this->createChallenge();
 
-        $outside->advanceTime('+11 minutes');
+        $outside->advanceTime('+10 minutes +1 second');
 
-        $result = $challenge->verify('123456', 3);
+        $result = $challenge->verify('123456');
 
         $this->assertFalse($result);
         $this->assertCount(0, $collector->pull());
@@ -127,10 +139,10 @@ final class OtpChallengeTest extends TestCase
     {
         [$challenge, $collector] = $this->createChallenge();
 
-        $challenge->verify('123456', 3);
+        $challenge->verify('123456');
         $collector->pull(); // clear first event
 
-        $result = $challenge->verify('123456', 3);
+        $result = $challenge->verify('123456');
 
         $this->assertFalse($result);
         $this->assertCount(0, $collector->pull());
