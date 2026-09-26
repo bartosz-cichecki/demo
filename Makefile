@@ -42,10 +42,10 @@ phpstan: ## Run PHPStan (level max)
 	$(EXEC_PHP) sh -lc 'cd /var/www/app && vendor/bin/phpstan analyse -c phpstan.neon.dist'
 
 deptrac: ## Run Deptrac
-	$(EXEC_PHP) sh -lc 'cd /var/www/app && vendor/bin/deptrac analyse'
+	$(EXEC_PHP) sh -lc 'cd /var/www/app && vendor/bin/deptrac analyse --config-file=deptrac.php'
 
 deptrac-ci: ## Run Deptrac (CI mode, fails on uncovered)
-	$(EXEC_PHP) sh -lc 'cd /var/www/app && vendor/bin/deptrac analyse --report-uncovered --no-interaction'
+	$(EXEC_PHP) sh -lc 'cd /var/www/app && vendor/bin/deptrac analyse --config-file=deptrac.php --report-uncovered --fail-on-uncovered --no-interaction'
 
 smoke: ## Smoke tests (console about + health endpoints)
 	$(EXEC_PHP) sh -lc 'cd /var/www/app && php bin/console about'

@@ -44,8 +44,8 @@ Select the sections relevant to the task. Do not use plans, backlogs, temporary 
 ## 3) Hard guardrails
 - Do not change architecture or the public HTTP surface unless the prompt explicitly requires it.
 - Do not move business logic into Application for convenience.
-- Do not import a foreign BC's Application or Domain classes into the consuming Application layer; use the consuming BC's own port and an Infrastructure adapter.
-- Do not treat a green Deptrac result as the only proof of cross-BC compliance; current Deptrac rules are layer-based, not BC-specific.
+- Domain, ordinary Application and Ui must not import classes from a foreign BC. For sync communication, use the consuming BC's own port and an Infrastructure adapter. The only cross-BC exception for Application is `Application/IntegrationEventSubscriber -> Application/IntegrationEvent` matching the namespace and name conventions in `architecture.md` §4; it does not grant access to foreign sync contracts or other foreign classes.
+- Deptrac enforces layer and BC dependency boundaries, but a green result does not verify SQL table ownership or the semantics of DTO mapping; review these explicitly.
 - Do not add manual DI before checking autoload conventions and module-local configuration.
 - Do not log secrets. Tokens and cookies may only be logged as hashes or redacted values.
 - Do not add services or infrastructure such as Redis unless the prompt requires it.

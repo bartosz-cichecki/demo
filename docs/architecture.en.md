@@ -86,19 +86,33 @@ app/src/{BoundedContext}/
 - Ui:
   - input adapters (HTTP/CLI), validation, Input -> Command mapping, response (HTTP)
 
-Deptrac is the source of truth for dependency direction.
+Deptrac (`app/deptrac.php`) enforces dependency direction and the boundaries of all BCs. SharedKernel is not a BC and retains separate Clock/Core/ValueObject/Application/Infrastructure/Ui rules. Clock may depend on ValueObject, Core on Clock, and ValueObject on Core and the UUID library. SharedKernel/Application may use business contexts' Application, public contracts and Domain, but not Outside (§6). SharedKernel/Infrastructure additionally has access to their Outside and Infrastructure, while SharedKernel/Ui has access to Outside and Ui.
+
+Cross-BC contract (A and B are different business contexts):
+- Sync: `Infrastructure A -> QueryInterface, Command or DTO B` is allowed.
+- Async: `Application/IntegrationEventSubscriber A -> IntegrationEvent B` is allowed. This is the only cross-BC exception for Application; subscribers retain their own permitted Application dependencies, including the prohibition on Outside access.
+- A's `Domain`, ordinary `Application` and `Ui` do not import any class or interface from B, including `IntegrationEvent`. For sync communication, the consumer defines its own port; only the Infrastructure adapter knows the foreign contract.
+- `Infrastructure A -> repository (including interfaces), handler, implementation, service or IntegrationEvent B` is forbidden. Subscribers receive no access to foreign sync contracts or other foreign BC classes.
+- A foreign service interface is not automatically a public contract. It requires an existing, specifically justified exception: a named consumer and interface, a rationale and a test. There are currently no such exceptions; `UserProvisioningServiceInterface` is Client's own port, and `ValueHasherServiceInterface` is used only within User.
+
+Public sync contracts use the namespace `App\{BC}\Application\{module}\…\Query\*QueryInterface`, `…\Command\**\*Command` or `…\Query\Dto\*Dto`. There is at least one module/aggregate segment below Application; QueryInterface lives directly in Query, and DTO directly in Query/Dto. `**` below Command means zero or more segments: a Command can live directly in Command or in a use-case subnamespace. The Command directory does not expose handlers, and an `Interface` suffix does not expose repositories or services.
+
+Public async contracts are `App\{BC}\Application\IntegrationEvent\**\*IntegrationEvent`, and their cross-BC consumers are `App\{BC}\Application\IntegrationEventSubscriber\*Subscriber`. For events, `**` means zero or more segments. A subscriber must live directly in `Application/IntegrationEventSubscriber`, matching the flat DI registration convention (§8.1 and §9.2); a subscriber in a subnamespace does not receive the cross-BC exception. Both the namespace and the class name suffix must match. A helper in IntegrationEvent or a Subscriber outside IntegrationEventSubscriber gains no public access. Sync contracts, integration events and subscribers are separated from ordinary Application. Outside remains separated from Domain so that even the same BC's Application and subscribers cannot use it (§6).
+
+Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatically covered by the same contract. A new BC following the standard structure (§2–3) requires no additional layers, exceptions between pairs of contexts or registry entries. Files directly in `app/src/`, such as `Kernel.php`, are not BCs.
 
 ### 4.1 Reading data from another context (ACL)
 - A context never writes raw SQL/DBAL to tables it does not own.
-- If context A needs data from context B, the dependency is pushed to the very bottom (Infrastructure) and goes through context B's public `QueryInterface`.
+- If context A needs data from context B, it defines its own read port (for Domain: its own Outside). The port's adapter in Infrastructure A uses context B's public `QueryInterface`. Domain never references the foreign Query directly.
 - Context A defines its own DTO and maps data from context B's DTO. It does not re-export foreign DTOs above the Infrastructure layer (Anti-Corruption Layer).
 - Benefit of the modular monolith: the dependency is compile-time, without serialization or network calls, while context boundaries are explicit in namespaces and adapters.
-- The current Deptrac configuration enforces dependency direction between layers, but it does not define separate layers for each BC. Cross-BC compliance therefore also requires an explicit pre-flight and import review; a green Deptrac result is not sufficient evidence of a correct ACL.
+- Example: `User/Infrastructure/Tenant/ActiveMembershipsQuery` implements its own `ActiveMembershipsQueryInterface`, reads through Client's `ClientMemberQueryInterface` and maps `ClientMemberDto` to its own `ActiveMembershipDto`. Deptrac checks dependency boundaries; SQL table ownership and the semantic correctness of mapping still require review.
 
 ### 4.2 A cross-BC write use case
 - If a use case in context A must initiate a write owned by context B, context A's Application layer depends on its own port.
 - The port implementation lives in context A's Infrastructure layer. The adapter may invoke context B's public Command through `CommandBus` and read the result through context B's public `QueryInterface`.
-- The consuming context's Application layer does not import classes from another BC's Application or Domain layer. Details of the foreign contract remain in the Infrastructure adapter.
+- In sync communication, the consuming context's Domain, Application and Ui do not import any classes from another BC. Details of the foreign contract remain in the Infrastructure adapter. The separate async exception applies only to integration event subscribers (§8.1).
+- Example: Client owns membership, User owns users. Client's own `UserProvisioningServiceInterface` port is implemented by `Client/Infrastructure/ClientMember/UserProvisioningService`, which dispatches User's `UpsertUserByEmailCommand` and reads through `UserQueryInterface`. The adapter does not invoke a foreign handler or repository.
 
 ## 5. CQRS-lite (team contract)
 
@@ -133,7 +147,7 @@ Deptrac is the source of truth for dependency direction.
 - Domain:
   - takes time from `{Aggregate}OutsideInterface::now()`
   - records events through `{Aggregate}OutsideInterface::record(DomainEvent $event)`
-  - queries cross-BC state (for example `{OtherContext}QueryInterface`) and never modifies foreign aggregates
+  - queries cross-BC state through its own Outside; only the Infrastructure adapter knows `{OtherContext}QueryInterface`, and it never modifies foreign aggregates
   - queries read-only state inside the BC (for example `count{AggregateItems}()`)
 - Infrastructure provides the Outside implementation, which delegates to SharedKernel mechanisms (for example `ClockInterface`, `DomainEventsRecorder`) and to queries from other BCs.
 - Consequence: business validations live in the aggregate/factory/policy, not in the handler. The handler is pure orchestration.
@@ -188,11 +202,11 @@ Deptrac is the source of truth for dependency direction.
 
 ### 8.1 Integration events (contract)
 - `IntegrationEvent` is a separate contract from `DomainEvent`.
-- An integration event is used for asynchronous technical communication between modules/processes through the outbox.
+- An integration event is used for asynchronous technical communication between modules/processes through the outbox. It is a public async contract of the publishing BC; in a foreign BC, only `Application/IntegrationEventSubscriber` following the convention in §4 may import it. Ordinary Application, Domain, Ui and Infrastructure do not import foreign events.
 - Integration events are serialized to JSON by Symfony Serializer. Preferred fields are primitives and simple serializable structures without custom normalizers.
 - `IntegrationEventPublisherInterface::publish()` does not dispatch the event in memory. The current `DbalOutboxPublisher` implementation writes a record to `shared.async_outbox`.
 - `DbalOutboxPublisher` assigns the technical `event_id`, stores `event_name` as the event class FQCN, JSON payload, and `created_at` from `ClockInterface` as a UTC storage string.
-- If a sync saga translates a `DomainEvent` into an `IntegrationEvent`, it does this in Application and uses `IntegrationEventPublisherInterface`.
+- If a sync saga translates its own `DomainEvent` into its own `IntegrationEvent`, it does this in Application and uses `IntegrationEventPublisherInterface`.
 - If the goal of a sync saga reaction is async publish, the saga does not run `CommandBus`; it publishes the `IntegrationEvent` through the publisher.
 - DI conventions:
   - sync sagas: `src/*/Application/**/Saga/*Saga.php` with the `app.saga` tag, called by the sync `EventBus`
@@ -271,6 +285,8 @@ Deptrac is the source of truth for dependency direction.
 - Domain unit: test aggregate behavior with FakeOutside and deterministic time.
 - Integration: infrastructure (DB, DBAL query, event log, mapping) has meaningful automated test coverage. We do not require a separate mapping test for every aggregate if the mapping is already actually covered by Behat or another integration test that goes through persist/flush/load. Add a dedicated mapping test only when the mapping has no natural coverage or is non-trivial enough that a separate test gives real value.
 - E2E (Behat): at least one "happy path" scenario through UI -> Application -> Domain -> Infrastructure.
+
+Tests in `app/tests/Architecture/BoundedContextDependenciesTest.php` run Deptrac against a temporary copy of the sources with the unchanged `app/deptrac.php`. They check existing adapters, allowed Infrastructure access to foreign Query/Command/DTO contracts and subscriber access to foreign IntegrationEvent contracts, rejection of other cross-BC dependencies and names outside the convention, and Outside and SharedKernel restrictions. An artificially added BC automatically receives the same contract: it can expose and consume public contracts, while forbidden dependencies are rejected. Tests, `make deptrac-ci` and `composer deptrac:ci` use `--report-uncovered --fail-on-uncovered`, so uncovered dependencies cause the check to fail.
 
 ### 12.1 Behat conventions (KISS)
 - Scenarios use aliases (readable names), not raw UUIDs.
