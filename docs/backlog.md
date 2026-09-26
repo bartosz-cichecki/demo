@@ -22,11 +22,14 @@ This backlog is not a list of every tool that could be added to the repository. 
 | Priority | Topic | Status | Updated | Done | Why |
 |---:|---|---|---|---|---|
 | 1 | GitHub Actions CI | DONE | 2026-07-14 | 2026-07-14 | Prove quality gates on push/PR |
-| 2 | Mermaid architecture flow | TODO | 2026-04-30 | — | Show the main architecture flow in 30 seconds |
-| 3 | README first screen polish | TODO | 2026-04-30 | — | Explain quickly what the demo is and what it proves |
-| 4 | Architecture Decision Records | TODO | 2026-04-30 | — | Show conscious decisions and trade-offs |
-| 5 | Repository hygiene | TODO | 2026-04-30 | — | Remove basic red flags from a public repository |
-| 6 | Dependabot | TODO | 2026-04-30 | — | Add automated dependency hygiene |
+| 2 | OTP cooldown decision in Domain | TODO | 2026-09-26 | — | Apply architecture §6–6.1 to OTP issuance |
+| 3 | OTP verification attempt limit in Domain | TODO | 2026-09-26 | — | Keep the rule in the aggregate and commit failed attempts |
+| 4 | Client membership uniqueness in Domain | TODO | 2026-09-26 | — | Centralize validation shared by both creation handlers |
+| 5 | Mermaid architecture flow | TODO | 2026-04-30 | — | Show the main architecture flow in 30 seconds |
+| 6 | README first screen polish | TODO | 2026-04-30 | — | Explain quickly what the demo is and what it proves |
+| 7 | Architecture Decision Records | TODO | 2026-04-30 | — | Show conscious decisions and trade-offs |
+| 8 | Repository hygiene | TODO | 2026-04-30 | — | Remove basic red flags from a public repository |
+| 9 | Dependabot | TODO | 2026-04-30 | — | Add automated dependency hygiene |
 
 ---
 
@@ -58,7 +61,98 @@ Completion note (2026-07-14): the workflow passed the full set of quality gates 
 
 ---
 
-## 2. Mermaid architecture flow
+## 2. OTP cooldown decision in Domain
+
+Status: `TODO`
+
+### Why
+
+`OtpRateLimitQuery::check()` currently owns the 60-second cooldown and compares the last send times with the current time. `RequestOtpCommandHandler` acts on its `isAllowed` result. Architecture §6–6.1 requires Infrastructure to provide facts and Domain to own the business decision.
+
+### Scope
+
+- Extend the existing `OtpChallengeOutsideInterface` with reads for the latest send times by email and IP. Accept the unhashed email (using the existing `Email` value object) and raw IP address; hash the IP inside Infrastructure, as the current query does. Domain must not assemble a lookup key through `hashIp()`.
+- Reuse the existing DBAL read logic behind Outside, replacing the query contract that returns a decision with reads that return facts. Remove obsolete rate-limit query/DTO code once unused.
+- Put `COOLDOWN_SECONDS = 60` and the issuance decision in the existing `OtpChallengeFactory`, using Outside for facts and current time. Check before generating the code or constructing the challenge.
+- Return no issue when blocked, for example through a nullable factory result. The handler persists an issued challenge or returns without writing; it does not calculate the cooldown or access Outside.
+- Preserve the current email/IP blocking semantics and the silent HTTP response for blocked requests.
+
+### Done when
+
+- Domain tests cover the first request, a request before 60 seconds, admission exactly at 60 seconds, independent email and IP restrictions, and a missing IP. Use deterministic time through the test Outside.
+- Test implementations of Outside and factory callers match the updated contracts.
+- Integration/Behat coverage verifies the read path and that a blocked request creates no challenge while preserving the HTTP contract.
+- Required quality gates pass in the order specified by `instructions-for-agents.md`.
+
+### Notes
+
+Use the existing factory and Outside; a separate policy is optional, not a prerequisite. This task does not add configurable limits, new infrastructure, or atomic rate limiting across concurrent requests. Follow architecture §5.2, §6–6.2 and §11.1.
+
+Implementation evidence: [current rate-limit query](../app/src/User/Infrastructure/OtpChallenge/RateLimit/OtpRateLimitQuery.php), [request handler](../app/src/User/Application/OtpChallenge/Command/RequestOtp/RequestOtpCommandHandler.php), [factory](../app/src/User/Domain/OtpChallenge/Factory/OtpChallengeFactory.php), and [Outside](../app/src/User/Infrastructure/OtpChallenge/OtpChallengeOutside.php).
+
+---
+
+## 3. OTP verification attempt limit in Domain
+
+Status: `TODO`
+
+### Why
+
+`VerifyOtpCommandHandler` currently supplies `MAX_ATTEMPTS = 5` to the aggregate. The aggregate should own this rule. Returning verification failure as a value is intentional: a wrong code increments the attempt counter, and that change must commit even though authentication is refused.
+
+### Scope
+
+- Move `MAX_ATTEMPTS = 5` into `OtpChallenge` and change `verify(code, maxAttempts)` to `verify(code)`.
+- Update callers and domain tests that currently supply artificial limits of one or three attempts to exercise the actual five-attempt rule.
+- Preserve `VerifyOtpResult`, `dispatchWithResult()` and the controller's mapping to the existing HTTP response. The result reaches the controller after commit; the handler runs inside the transaction.
+- Keep ordinary verification refusal as a result, not an exception escaping the handler: the current CommandBus rolls back on exceptions, which would discard the incremented counter.
+
+### Done when
+
+- Domain tests prove that five incorrect codes exhaust the limit, that a correct code is rejected afterwards, and that verification can succeed before exhaustion.
+- Integration/Behat coverage proves that failed verification commits the incremented counter and preserves the current HTTP contract. Retain coverage of expiry and already-consumed challenges.
+- Required quality gates pass in the order specified by `instructions-for-agents.md`.
+
+### Notes
+
+No new policy, configuration, or transaction mechanism is needed. Apply architecture §6–6.1 while retaining the command-result contract in §5.1 and central transaction ownership in §9.
+
+Implementation evidence: [verification handler](../app/src/User/Application/OtpChallenge/Command/VerifyOtp/VerifyOtpCommandHandler.php), [aggregate](../app/src/User/Domain/OtpChallenge/OtpChallenge.php), [CommandBus](../app/src/SharedKernel/Infrastructure/CommandBus/CommandBus.php), [HTTP controller](../app/src/User/Ui/Http/Api/OtpAuthController.php), and [domain tests](../app/tests/User/Domain/OtpChallenge/OtpChallengeTest.php).
+
+---
+
+## 4. Client membership uniqueness in Domain
+
+Status: `TODO`
+
+### Why
+
+Both `ProvisionClientMemberCommandHandler` and `CreateClientMemberCommandHandler` check for an existing membership and throw `ClientMemberAlreadyExistsException`. Architecture §6 requires this business validation to live in Domain; the shared factory can enforce it once for both flows.
+
+### Scope
+
+- Add `membershipExists(clientId, userId)` to the existing `ClientMemberOutsideInterface`.
+- Implement it in `ClientMemberOutside` by delegating to the existing `ClientMemberQueryInterface::findByClientAndUser()` and returning whether a DTO was found. Reuse that DBAL query; do not add SQL or an extra lookup in the handler.
+- Move the uniqueness check and existing exception into `ClientMemberFactory`, before constructing the member and recording its creation event.
+- Remove the duplicate checks from both creation handlers. Keep user provisioning in Application through its existing port.
+- Preserve the unique database index on `(client_id, user_id)` as protection against concurrent duplicate inserts.
+
+### Done when
+
+- Factory tests cover creation when absent and refusal when present, with no creation event on refusal. Update the test Outside accordingly.
+- Integration/Behat coverage verifies duplicate refusal through both creation flows and preserves their current HTTP behavior.
+- Both handlers use the shared domain validation, with one membership lookup through Outside per creation attempt.
+- Required quality gates pass in the order specified by `instructions-for-agents.md`.
+
+### Notes
+
+Reuse the existing factory, Outside, query and exception. No separate policy or cross-BC dependency is needed for the membership read. Apply architecture §5.2, §6–6.1 and §11.1; retain the existing User provisioning boundary from §4.2.
+
+Implementation evidence: [provision handler](../app/src/Client/Application/ClientMember/Command/ProvisionClientMember/ProvisionClientMemberCommandHandler.php), [create handler](../app/src/Client/Application/ClientMember/Command/CreateClientMember/CreateClientMemberCommandHandler.php), [factory](../app/src/Client/Domain/ClientMember/Factory/ClientMemberFactory.php), [membership query](../app/src/Client/Infrastructure/ClientMember/ClientMemberQuery.php), and [unique-index migration](../app/src/Client/Infrastructure/Resource/Migrations/Version20260206120000.php).
+
+---
+
+## 5. Mermaid architecture flow
 
 Status: `TODO`
 
@@ -93,7 +187,7 @@ Do this before the README polish, because the diagram becomes direct input for t
 
 ---
 
-## 3. README first screen polish
+## 6. README first screen polish
 
 Status: `TODO`
 
@@ -121,7 +215,7 @@ The current README already has a `Key flows` section based on real Behat scenari
 
 ---
 
-## 4. Architecture Decision Records
+## 7. Architecture Decision Records
 
 Status: `TODO`
 
@@ -198,7 +292,7 @@ Keep ADRs short. Their purpose is to defend trade-offs and show reasoning, not t
 
 ---
 
-## 5. Repository hygiene
+## 8. Repository hygiene
 
 Status: `TODO`
 
@@ -220,7 +314,7 @@ Keep this minimal. These files should help repository readers. They should not p
 
 ---
 
-## 6. Dependabot
+## 9. Dependabot
 
 Status: `TODO`
 
