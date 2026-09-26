@@ -31,7 +31,9 @@
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^12.5",
         "symfony/browser-kit": "7.4.*",
-        "symfony/http-client": "7.4.*"
+        "symfony/filesystem": "7.4.*",
+        "symfony/http-client": "7.4.*",
+        "symfony/process": "7.4.*"
     },
     "config": {
         "allow-plugins": {
@@ -75,8 +77,8 @@
         ],
         "cs:check": "php-cs-fixer fix --dry-run --diff",
         "cs:fix": "php-cs-fixer fix",
-        "deptrac": "deptrac analyse",
-        "deptrac:ci": "deptrac analyse --report-uncovered --no-interaction",
+        "deptrac": "deptrac analyse --config-file=deptrac.php",
+        "deptrac:ci": "deptrac analyse --config-file=deptrac.php --report-uncovered --fail-on-uncovered --no-interaction",
         "test": "phpunit"
     },
     "conflict": {

@@ -86,19 +86,33 @@ app/src/{BoundedContext}/
 - Ui:
   - adaptery wejścia (HTTP/CLI), walidacja, mapowanie Input -> Command, odpowiedź (HTTP)
 
-Deptrac jest źródłem prawdy dla kierunku zależności.
+Deptrac (`app/deptrac.php`) wymusza kierunki zależności i granice wszystkich BC. SharedKernel nie jest BC i zachowuje osobne reguły Clock/Core/ValueObject/Application/Infrastructure/Ui. Clock może zależeć od ValueObject, Core od Clock, a ValueObject od Core i biblioteki UUID. SharedKernel/Application może korzystać z Application, publicznych kontraktów i Domain kontekstów biznesowych, ale nie z Outside (§6). SharedKernel/Infrastructure dodatkowo ma dostęp do ich Outside i Infrastructure, a SharedKernel/Ui — do Outside i Ui.
+
+Kontrakt cross-BC (A i B to różne konteksty biznesowe):
+- Sync: `Infrastructure A -> QueryInterface, Command lub DTO B` jest dozwolone.
+- Async: `Application/IntegrationEventSubscriber A -> IntegrationEvent B` jest dozwolone. To jedyny wyjątek cross-BC dla Application; subscriber zachowuje własne dozwolone zależności Application, w tym zakaz dostępu do Outside.
+- `Domain`, zwykłe `Application` i `Ui` A nie importują żadnej klasy ani interfejsu B, również `IntegrationEvent`. Dla komunikacji sync konsument definiuje własny port; obcy kontrakt zna wyłącznie adapter Infrastructure.
+- `Infrastructure A -> repository (również interface), handler, implementacja, service lub IntegrationEvent B` jest zabronione. Subscriber nie otrzymuje dostępu do obcych kontraktów sync ani innych klas obcego BC.
+- Obcy service interface nie jest automatycznie publicznym kontraktem. Wymaga istniejącego, konkretnie uzasadnionego wyjątku: nazwanych konsumenta i interfejsu, uzasadnienia oraz testu. Aktualnie nie ma takich wyjątków; `UserProvisioningServiceInterface` jest własnym portem Client, a `ValueHasherServiceInterface` jest używany tylko wewnątrz User.
+
+Publiczne kontrakty sync mają namespace `App\{BC}\Application\{moduł}\…\Query\*QueryInterface`, `…\Command\**\*Command` lub `…\Query\Dto\*Dto`. Pod Application jest co najmniej jeden segment modułu/agregatu; QueryInterface leży bezpośrednio w Query, a DTO bezpośrednio w Query/Dto. `**` pod Command oznacza zero lub więcej segmentów: Command może leżeć bezpośrednio w Command albo w podnamespace przypadku użycia. Katalog Command nie udostępnia handlerów, a sufiks `Interface` nie udostępnia repozytoriów i serwisów.
+
+Publiczne kontrakty async to `App\{BC}\Application\IntegrationEvent\**\*IntegrationEvent`, a ich konsumenci cross-BC to `App\{BC}\Application\IntegrationEventSubscriber\*Subscriber`. W przypadku eventów `**` oznacza zero lub więcej segmentów. Subscriber musi leżeć bezpośrednio w `Application/IntegrationEventSubscriber`, zgodnie z płaską konwencją rejestracji DI (§8.1 i §9.2); subscriber w podnamespace nie otrzymuje wyjątku cross-BC. Wymagane są jednocześnie właściwy namespace i sufiks nazwy klasy. Helper w katalogu IntegrationEvent ani Subscriber poza IntegrationEventSubscriber nie uzyskuje publicznego dostępu. Kontrakty sync, integration events i subscribery są wydzielone z ogólnego Application. Outside pozostaje wydzielone z Domain, aby także własne Application i subscribery nie mogły go używać (§6).
+
+Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, jest automatycznie objęty tym samym kontraktem. Nowy BC zgodny ze standardowym układem (§2–3) nie wymaga dopisywania warstw, wyjątków między parami kontekstów ani wpisu do rejestru. Pliki bezpośrednio w `app/src/`, takie jak `Kernel.php`, nie są BC.
 
 ### 4.1 Odczyt danych z obcego kontekstu (ACL)
 - Kontekst nigdy nie pisze raw SQL/DBAL do tabel, których nie jest właścicielem.
-- Jeśli kontekst A potrzebuje danych z kontekstu B, zależność jest zepchnięta na sam dół (Infrastructure) i przechodzi przez publiczny `QueryInterface` kontekstu B.
+- Jeśli kontekst A potrzebuje danych z kontekstu B, definiuje własny port odczytu (dla Domain: własny Outside). Adapter tego portu w Infrastructure A korzysta z publicznego `QueryInterface` kontekstu B. Domain nie odwołuje się bezpośrednio do obcego Query.
 - Kontekst A definiuje własne DTO i mapuje dane z DTO kontekstu B — nie reeksportuje obcych DTO wyżej niż warstwa Infrastructure (Anti-Corruption Layer).
 - Zaleta monolitu modularnego: zależność jest compile-time, bez serializacji i sieci, a granice kontekstów są jawne w namespace'ach i adapterach.
-- Aktualna konfiguracja Deptrac wymusza kierunek zależności między warstwami, ale nie definiuje osobnych warstw dla każdego BC. Zgodność cross-BC wymaga więc także jawnego pre-flight i review importów; zielony Deptrac nie jest samodzielnym dowodem poprawnego ACL.
+- Przykład: `User/Infrastructure/Tenant/ActiveMembershipsQuery` implementuje własny `ActiveMembershipsQueryInterface`, czyta przez `ClientMemberQueryInterface` z Client i mapuje `ClientMemberDto` na własny `ActiveMembershipDto`. Deptrac sprawdza granice zależności; właściciela tabel SQL i poprawność semantyczną mapowania nadal sprawdzamy w review.
 
 ### 4.2 Przypadek użycia zapisujący cross-BC
 - Jeśli przypadek użycia w kontekście A musi uruchomić zapis należący do kontekstu B, Application kontekstu A zależy od własnego portu.
 - Implementacja tego portu leży w Infrastructure kontekstu A. Adapter może wywołać publiczny Command kontekstu B przez `CommandBus` i odczytać wynik przez publiczny `QueryInterface` kontekstu B.
-- Application kontekstu konsumującego nie importuje klas z Application ani Domain obcego BC. Szczegóły obcego kontraktu pozostają w adapterze Infrastructure.
+- W komunikacji sync Domain, Application i Ui kontekstu konsumującego nie importują żadnych klas obcego BC. Szczegóły obcego kontraktu pozostają w adapterze Infrastructure. Osobny wyjątek async dotyczy wyłącznie subscriberów integration events (§8.1).
+- Przykład: Client jest właścicielem członkostwa, User — użytkownika. Własny port Client `UserProvisioningServiceInterface` implementuje `Client/Infrastructure/ClientMember/UserProvisioningService`, który dispatchuje `UpsertUserByEmailCommand` z User i czyta przez `UserQueryInterface`. Adapter nie wywołuje obcego handlera ani repozytorium.
 
 ## 5. CQRS-lite (kontrakt zespołowy)
 
@@ -133,7 +147,7 @@ Deptrac jest źródłem prawdy dla kierunku zależności.
 - Domena:
   - bierze czas z `{Aggregate}OutsideInterface::now()`
   - rejestruje eventy przez `{Aggregate}OutsideInterface::record(DomainEvent $event)`
-  - odpytuje stan cross-BC (np. `{OtherContext}QueryInterface`) — nigdy nie modyfikuje obcych agregatów
+  - odpytuje stan cross-BC przez własny Outside; dopiero jego adapter Infrastructure zna `{OtherContext}QueryInterface` — nigdy nie modyfikuje obcych agregatów
   - odpytuje stan read-only w obrębie BC (np. `count{AggregateItems}()`)
 - Infrastructure dostarcza implementację Outside, która deleguje do mechanizmów SharedKernel (np. `ClockInterface`, `DomainEventsRecorder`) oraz do query z innych BC.
 - Konsekwencja: walidacje biznesowe żyją w agregacie/fabryce/policy — nie w handlerze. Handler jest czystą orkiestracją.
@@ -187,11 +201,11 @@ Deptrac jest źródłem prawdy dla kierunku zależności.
 
 ### 8.1 Integration events (kontrakt)
 - `IntegrationEvent` jest osobnym kontraktem od `DomainEvent`.
-- Integration event służy do asynchronicznej komunikacji technicznej między modułami/procesami przez outbox.
+- Integration event służy do asynchronicznej komunikacji technicznej między modułami/procesami przez outbox. Jest publicznym kontraktem async BC publikującego; w obcym BC może go importować wyłącznie `Application/IntegrationEventSubscriber` zgodny z konwencją z §4. Zwykłe Application, Domain, Ui i Infrastructure nie importują obcego eventu.
 - Integration event jest serializowany do JSON przez Symfony Serializer. Preferowane pola to prymitywy i proste struktury serializowalne bez custom normalizerów.
 - `IntegrationEventPublisherInterface::publish()` nie dispatchuje eventu in-memory. Aktualna implementacja `DbalOutboxPublisher` zapisuje rekord do `shared.async_outbox`.
 - `DbalOutboxPublisher` nadaje techniczne `event_id`, zapisuje `event_name` jako FQCN klasy eventu, payload JSON oraz `created_at` z `ClockInterface` jako UTC storage string.
-- Jeśli sync saga tłumaczy `DomainEvent` na `IntegrationEvent`, robi to w Application i używa `IntegrationEventPublisherInterface`.
+- Jeśli sync saga tłumaczy własny `DomainEvent` na własny `IntegrationEvent`, robi to w Application i używa `IntegrationEventPublisherInterface`.
 - Jeśli celem reakcji sync sagi jest async publish, saga nie uruchamia `CommandBus`; publikuje `IntegrationEvent` przez publisher.
 - Konwencje DI:
   - sagi sync: `src/*/Application/**/Saga/*Saga.php` z tagiem `app.saga`, wywoływane przez sync `EventBus`
@@ -269,6 +283,8 @@ Deptrac jest źródłem prawdy dla kierunku zależności.
 - Domain unit: testujemy zachowanie agregatów z FakeOutside i deterministycznym czasem.
 - Integration: infrastruktura (DB, query DBAL, event log, mapping) ma sensowną automatyczną osłonę testową. Nie wymagamy osobnego testu mappingu dla każdego agregatu, jeśli mapping jest już realnie pokryty przez Behat lub inny test integracyjny przechodzący przez persist/flush/load. Dedykowany test mappingu dodajemy tylko wtedy, gdy mapping nie ma naturalnego pokrycia albo jest na tyle nietrywialny, że osobny test daje realną wartość.
 - E2E (Behat): przynajmniej jeden scenariusz “happy path” przez UI -> Application -> Domain -> Infrastructure.
+
+Testy w `app/tests/Architecture/BoundedContextDependenciesTest.php` uruchamiają Deptrac na tymczasowej kopii źródeł z niezmienionym `app/deptrac.php`. Sprawdzają aktualne adaptery, dozwolony dostęp Infrastructure do obcych Query/Command/DTO oraz subscriberów do obcych IntegrationEvent, odrzucanie pozostałych zależności cross-BC i nazw niezgodnych z konwencją oraz ograniczenia Outside i SharedKernel. Sztucznie dodany BC automatycznie otrzymuje ten sam kontrakt: może udostępniać i konsumować publiczne kontrakty, a niedozwolone zależności są odrzucane. Testy, `make deptrac-ci` oraz `composer deptrac:ci` używają `--report-uncovered --fail-on-uncovered`, więc niepokryte zależności powodują błąd kontroli.
 
 ### 12.1 Behat conventions (KISS)
 - Scenariusze używają aliasów (czytelnych nazw), nie surowych UUID.
