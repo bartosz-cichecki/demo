@@ -108,6 +108,7 @@ Feature: Client member management
         And I am logged in as "adm" without active client
         When I list members in "acme"
         Then response status should be 403
+        And response error should be "active_client_required"
 
     Scenario: Tenant guard denies provisioning when active client is missing
         Given there is a user "adm" with email "adm@example.com"
@@ -115,6 +116,7 @@ Feature: Client member management
         And I am logged in as "adm" without active client
         When I provision a member with email "new@example.com"
         Then response status should be 403
+        And response error should be "active_client_required"
 
     Scenario: Tenant guard denies access for suspended membership
         Given there is a user "adm" with email "adm@example.com"

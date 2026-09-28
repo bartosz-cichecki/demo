@@ -106,7 +106,7 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 - If context A needs data from context B, it defines its own read port (for Domain: its own Outside). The port's adapter in Infrastructure A uses context B's public `QueryInterface`. Domain never references the foreign Query directly.
 - Context A defines its own DTO and maps data from context B's DTO. It does not re-export foreign DTOs above the Infrastructure layer (Anti-Corruption Layer).
 - Benefit of the modular monolith: the dependency is compile-time, without serialization or network calls, while context boundaries are explicit in namespaces and adapters.
-- Example: `User/Infrastructure/Tenant/ActiveMembershipsQuery` implements its own `ActiveMembershipsQueryInterface`, reads through Client's `ClientMemberQueryInterface` and maps `ClientMemberDto` to its own `ActiveMembershipDto`. Deptrac checks dependency boundaries; SQL table ownership and the semantic correctness of mapping still require review.
+- Example: `User/Infrastructure/Tenant/ActiveMembershipsQuery` implements its own `ActiveMembershipsQueryInterface`, reads through Client's `ClientMemberQueryInterface` and `ClientQueryInterface` and maps `ClientMemberDto` together with the name from `ClientDto` to its own `ActiveMembershipDto`. Deptrac checks dependency boundaries; SQL table ownership and the semantic correctness of mapping still require review.
 
 ### 4.2 A cross-BC write use case
 - If a use case in context A must initiate a write owned by context B, context A's Application layer depends on its own port.
@@ -274,12 +274,22 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 - The `session.is_platform_admin` flag is set after successful login (`PlatformAdminOnLoginSubscriber`) based on the `app.platform_admin_emails` allowlist.
 - The architecture test (`PlatformRouteNamingTest`) ensures that no route contains the substring "platform" without the `platform_` prefix.
 
+Session states and active client selection:
+- Anonymous (no `user_id`): only routes on the `TenantGuardSubscriber` allowlist are available (`api_auth_otp_request`, `api_auth_otp_verify`, `/api/health`). Other guarded routes return 401, `platform_*` routes return 403.
+- Logged in without an active client: a successful `POST /api/auth/otp/verify` migrates the session id, sets `user_id` and `is_platform_admin`, and removes any `active_client_id` left from an earlier login in the same session. Login never selects a client and does not require a membership. Routes in `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` (`api_me_clients_list`, `api_session_active_client_select`) and, for a platform admin, `platform_*` routes are available. A tenant route returns `403 {"error": "active_client_required"}`.
+- Logged in with an active client: `POST /api/session/active-client` sets `active_client_id` only for an active membership of the user and migrates the session id. A later call switches the client; a refused selection leaves the session state unchanged. Tenant routes go through the remaining guard checks (§11.1).
+
 ### 11.1 Current HTTP/API surface
 - Application routing loads controllers from `app/src/**/Ui/Http/Api/` and adds the `/api` prefix.
 - The current HTTP controllers return JSON. The repository contains no runtime browser application, so such a consumer and its contracts are not inferred from external materials.
 - The public endpoint contract includes the path, HTTP method, input, response status, and JSON payload. Changing any of these elements changes the public HTTP surface and requires explicit task scope and behavior test updates.
 - The route name is an internal routing and security contract, not part of the public HTTP contract. New or changed route names require checking the `platform_` prefix, the route access requirements configuration and allowlist in `TenantGuardSubscriber`, and subscribers that react to a specific route.
-- After accounting for platform and allowlist exceptions, `TenantGuardSubscriber` only permits routes in `ADMIN_REQUIRED_ROUTE_NAMES`, requiring an active client administrator membership. Other routes covered by the guard are denied access. Adding a route for a regular member requires extending the configuration and handling of access requirements in the guard.
+- After accounting for platform and allowlist exceptions, `TenantGuardSubscriber` requires the `user_id` of an existing, non-blocked user. Routes in `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` do not require an active client. For the others, the guard requires `active_client_id`, a route `{clientId}` matching the active client, and an active membership, and only permits routes in `ADMIN_REQUIRED_ROUTE_NAMES`, requiring the client administrator role. Other routes covered by the guard are denied access. Adding a route for a regular member requires extending the configuration and handling of access requirements in the guard.
+- Guard denials return `{"error": "Access denied"}` with 401 or 403. The only distinguishable case is a tenant route without an active client: `403 {"error": "active_client_required"}`.
+- Logged-in session endpoints (`User/Ui/Http/Api/ActiveClientController`):
+  - `GET /api/me/clients` (`api_me_clients_list`) → 200 with the user's active memberships: `[{"clientId": "...", "clientName": "...", "roles": ["admin"]}]`. Suspended memberships are not returned; a user without memberships gets `[]`. The API never selects a client automatically, even for a one-element list.
+  - `POST /api/session/active-client` (`api_session_active_client_select`) with `{"clientId": "<uuid>"}` → 204 with no body; the session stores the lowercase UUID, matching the ids from `GET /api/me/clients`. A client without an active membership of the user (foreign, suspended, non-existent) → `403 {"error": "Access denied"}`; a `clientId` that is not a UUID → 400 with validation errors.
+  - `POST /api/auth/otp/verify` keeps its `{"ok": true}` / `{"ok": false}` contract.
 
 ## 12. Test strategy (minimum)
 - Domain unit: test aggregate behavior with FakeOutside and deterministic time.
