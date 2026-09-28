@@ -30,6 +30,22 @@ Feature: Client member management
         And I am logged in as "adm" in client "acme"
         When I provision a member with email "existing@example.com"
         Then I should get a conflict error
+        And client "acme" should have 2 members
+        And the member "existing" in client "acme" should have roles "user"
+        And the member "existing" in client "acme" should have status "active"
+
+    Scenario: Suspended membership also prevents duplicate provisioning
+        Given there is a user "adm" with email "adm@example.com"
+        And there is a membership of "adm" in "acme" with roles "admin"
+        And there is a user "existing" with email "existing@example.com"
+        And there is a membership of "existing" in "acme" with roles "user"
+        And membership of "existing" in "acme" is suspended
+        And I am logged in as "adm" in client "acme"
+        When I provision a member with email "existing@example.com"
+        Then I should get a conflict error
+        And client "acme" should have 2 members
+        And the member "existing" in client "acme" should have roles "user"
+        And the member "existing" in client "acme" should have status "suspended"
 
     # === Replace roles (admin) ===
 

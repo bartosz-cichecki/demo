@@ -139,6 +139,10 @@ final class ClientMemberContext implements Context
             'Expected status 409, got %d',
             $this->lastResponseCode,
         ));
+        Assert::assertSame(
+            ['error' => 'Member already exists for this client'],
+            json_decode((string) $this->client->getResponse()->getContent(), true, 512, \JSON_THROW_ON_ERROR),
+        );
     }
 
     /**

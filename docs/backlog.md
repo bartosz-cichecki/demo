@@ -24,7 +24,7 @@ This backlog is not a list of every tool that could be added to the repository. 
 | 1 | GitHub Actions CI | DONE | 2026-07-14 | 2026-07-14 | Prove quality gates on push/PR |
 | 2 | OTP cooldown decision in Domain | DONE | 2026-09-26 | 2026-09-26 | Apply architecture §6–6.1 to OTP issuance |
 | 3 | OTP verification attempt limit in Domain | DONE | 2026-09-26 | 2026-09-26 | Keep the rule in the aggregate and commit failed attempts |
-| 4 | Client membership uniqueness in Domain | TODO | 2026-09-26 | — | Centralize validation shared by both creation handlers |
+| 4 | Client membership uniqueness in Domain | DONE | 2026-09-28 | 2026-09-28 | Centralize validation shared by both creation handlers |
 | 5 | Mermaid architecture flow | TODO | 2026-04-30 | — | Show the main architecture flow in 30 seconds |
 | 6 | README first screen polish | TODO | 2026-04-30 | — | Explain quickly what the demo is and what it proves |
 | 7 | Architecture Decision Records | TODO | 2026-04-30 | — | Show conscious decisions and trade-offs |
@@ -127,11 +127,11 @@ Verification: [Behat scenarios](../app/tests/Behat/features/user/user_registrati
 
 ## 4. Client membership uniqueness in Domain
 
-Status: `TODO`
+Status: `DONE`
 
 ### Why
 
-Both `ProvisionClientMemberCommandHandler` and `CreateClientMemberCommandHandler` check for an existing membership and throw `ClientMemberAlreadyExistsException`. Architecture §6 requires this business validation to live in Domain; the shared factory can enforce it once for both flows.
+Previously, both `ProvisionClientMemberCommandHandler` and `CreateClientMemberCommandHandler` checked for an existing membership and threw `ClientMemberAlreadyExistsException`. The shared factory now owns this validation, as required by architecture §6.
 
 ### Scope
 
@@ -153,6 +153,8 @@ Both `ProvisionClientMemberCommandHandler` and `CreateClientMemberCommandHandler
 Reuse the existing factory, Outside, query and exception. No separate policy or cross-BC dependency is needed for the membership read. Apply architecture §5.2, §6–6.1 and §11.1; retain the existing User provisioning boundary from §4.2.
 
 Implementation evidence: [provision handler](../app/src/Client/Application/ClientMember/Command/ProvisionClientMember/ProvisionClientMemberCommandHandler.php), [create handler](../app/src/Client/Application/ClientMember/Command/CreateClientMember/CreateClientMemberCommandHandler.php), [factory](../app/src/Client/Domain/ClientMember/Factory/ClientMemberFactory.php), [membership query](../app/src/Client/Infrastructure/ClientMember/ClientMemberQuery.php), and [unique-index migration](../app/src/Client/Infrastructure/Resource/Migrations/Version20260206120000.php).
+
+Verification: [factory tests](../app/tests/Client/Domain/ClientMember/ClientMemberFactoryTest.php) prove rejection before construction and event recording. [Integration tests](../app/tests/Client/Infrastructure/ClientMember/ClientMemberCreationIntegrationTest.php) cover both creation flows with one membership lookup, including active and suspended duplicates. [Behat scenarios](../app/tests/Behat/features/client_member/client_member_management.feature) preserve HTTP 409 and its error payload without changing the existing membership. The database unique index is unchanged. All five quality gates passed sequentially (186 PHPUnit tests, 31 Behat scenarios).
 
 ---
 

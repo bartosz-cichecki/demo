@@ -22,11 +22,6 @@ final readonly class CreateClientMemberCommandHandler
      */
     public function __invoke(CreateClientMemberCommand $command): void
     {
-        $existing = $this->clientMemberRepository->findByClientAndUser($command->clientId, $command->userId);
-        if (null !== $existing) {
-            throw new ClientMemberAlreadyExistsException($command->clientId, $command->userId);
-        }
-
         $member = $this->clientMemberFactory->create(
             Id::new(),
             $command->clientId,
