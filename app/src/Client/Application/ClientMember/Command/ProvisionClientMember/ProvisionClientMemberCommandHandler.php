@@ -27,11 +27,6 @@ final readonly class ProvisionClientMemberCommandHandler
     {
         $userId = $this->userProvisioning->ensureUserExists($command->email);
 
-        $existing = $this->clientMemberRepository->findByClientAndUser($command->clientId, $userId);
-        if (null !== $existing) {
-            throw new ClientMemberAlreadyExistsException($command->clientId, $userId);
-        }
-
         $member = $this->clientMemberFactory->create(
             Id::new(),
             $command->clientId,
