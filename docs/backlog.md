@@ -26,7 +26,7 @@ This backlog is not a list of every tool that could be added to the repository. 
 | 3 | OTP verification attempt limit in Domain | DONE | 2026-09-26 | 2026-09-26 | Keep the rule in the aggregate and commit failed attempts |
 | 4 | Client membership uniqueness in Domain | DONE | 2026-09-28 | 2026-09-28 | Centralize validation shared by both creation handlers |
 | 5 | Explicit client selection and membership invitations | TODO | 2026-09-28 | — | Real multi-tenant flow with consent and cross-BC async |
-| 5.1 | Explicit active client selection | TODO | 2026-09-28 | — | Replace the implicit UUID-ordered client choice at login |
+| 5.1 | Explicit active client selection | DONE | 2026-09-28 | 2026-09-28 | Replace the implicit UUID-ordered client choice at login |
 | 5.2 | Client membership invitations | TODO | 2026-09-28 | — | Membership requires user consent; async notification Client → User |
 | 5.3 | Client onboarding invites the first admin | TODO | 2026-09-28 | — | Close the gap where only fixtures create client admins |
 | 6 | Mermaid architecture flow | TODO | 2026-09-28 | — | Show the main architecture flow in 30 seconds |
@@ -195,6 +195,10 @@ Done when:
 - Behat covers: login without selection, listing clients (suspended memberships excluded), selection, switching, refused selection of a foreign or suspended membership, tenant route before selection (`active_client_required`), and login of a user without memberships.
 - Existing scenarios that assert `active_client_id` right after verify are rewritten to verify + select.
 - `docs/architecture.md` §11 and §11.1 describe the new session states and routes.
+
+Completion note (2026-09-28): `ActiveClientIdOnLoginSubscriber` and `ActiveClientIdResolverService` were removed. OTP verify migrates the session, sets `user_id` and clears any earlier `active_client_id`; it never selects a client and accepts users without memberships. The existing User ACL `ActiveMembershipsQuery` now also maps the client name (through `ClientQueryInterface`) and roles for `GET /api/me/clients`; `POST /api/session/active-client` reuses `MembershipForClientQueryInterface`, returns 204, stores the lowercase UUID and migrates the session, and answers 403 `Access denied` without changing the session for a foreign, suspended or unknown client (400 for a non-UUID). `TenantGuardSubscriber` checks the user before the active client, lets `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` pass, and returns `403 {"error": "active_client_required"}` from the `MISSING_CLIENT_ID` branch. Fixture sessions (`I am logged in as … in client …`) still arrange `active_client_id` directly; they model an earlier explicit selection, not login. All five quality gates passed sequentially (183 PHPUnit tests, 44 Behat scenarios).
+
+Implementation evidence: [session endpoints](../app/src/User/Ui/Http/Api/ActiveClientController.php), [OTP controller](../app/src/User/Ui/Http/Api/OtpAuthController.php), [tenant guard](../app/src/User/Ui/Http/Security/TenantGuardSubscriber.php), and [membership ACL](../app/src/User/Infrastructure/Tenant/ActiveMembershipsQuery.php). Verification: [selection scenarios](../app/tests/Behat/features/user/active_client_selection.feature) and the rewritten [OTP scenarios](../app/tests/Behat/features/user/user_registration.feature).
 
 ### 5.2 Client membership invitations
 

@@ -106,7 +106,7 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 - Jeśli kontekst A potrzebuje danych z kontekstu B, definiuje własny port odczytu (dla Domain: własny Outside). Adapter tego portu w Infrastructure A korzysta z publicznego `QueryInterface` kontekstu B. Domain nie odwołuje się bezpośrednio do obcego Query.
 - Kontekst A definiuje własne DTO i mapuje dane z DTO kontekstu B — nie reeksportuje obcych DTO wyżej niż warstwa Infrastructure (Anti-Corruption Layer).
 - Zaleta monolitu modularnego: zależność jest compile-time, bez serializacji i sieci, a granice kontekstów są jawne w namespace'ach i adapterach.
-- Przykład: `User/Infrastructure/Tenant/ActiveMembershipsQuery` implementuje własny `ActiveMembershipsQueryInterface`, czyta przez `ClientMemberQueryInterface` z Client i mapuje `ClientMemberDto` na własny `ActiveMembershipDto`. Deptrac sprawdza granice zależności; właściciela tabel SQL i poprawność semantyczną mapowania nadal sprawdzamy w review.
+- Przykład: `User/Infrastructure/Tenant/ActiveMembershipsQuery` implementuje własny `ActiveMembershipsQueryInterface`, czyta przez `ClientMemberQueryInterface` i `ClientQueryInterface` z Client i mapuje `ClientMemberDto` oraz nazwę z `ClientDto` na własny `ActiveMembershipDto`. Deptrac sprawdza granice zależności; właściciela tabel SQL i poprawność semantyczną mapowania nadal sprawdzamy w review.
 
 ### 4.2 Przypadek użycia zapisujący cross-BC
 - Jeśli przypadek użycia w kontekście A musi uruchomić zapis należący do kontekstu B, Application kontekstu A zależy od własnego portu.
@@ -272,12 +272,22 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 - Flaga `session.is_platform_admin` ustawiana po udanym loginie (`PlatformAdminOnLoginSubscriber`) na podstawie allowlisty `app.platform_admin_emails`.
 - Test architektoniczny (`PlatformRouteNamingTest`) pilnuje, że żaden route nie zawiera substring "platform" bez prefiksu `platform_`.
 
+Stany sesji i wybór aktywnego klienta:
+- Anonimowa (brak `user_id`): dostępne są tylko trasy z allowlisty `TenantGuardSubscriber` (`api_auth_otp_request`, `api_auth_otp_verify`, `/api/health`). Pozostałe trasy objęte guardem zwracają 401, trasy `platform_*` — 403.
+- Zalogowana bez aktywnego klienta: udany `POST /api/auth/otp/verify` migruje identyfikator sesji, ustawia `user_id` i `is_platform_admin`, a usuwa `active_client_id` pozostały z wcześniejszego logowania w tej sesji. Login nigdy nie wybiera klienta i nie wymaga członkostwa. Dostępne są trasy z `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` (`api_me_clients_list`, `api_session_active_client_select`) oraz trasy `platform_*` dla administratora platformy. Trasa tenantowa zwraca `403 {"error": "active_client_required"}`.
+- Zalogowana z aktywnym klientem: `POST /api/session/active-client` ustawia `active_client_id` wyłącznie dla aktywnego członkostwa użytkownika i migruje identyfikator sesji. Kolejne wywołanie przełącza klienta; odrzucony wybór pozostawia dotychczasowy stan sesji. Trasy tenantowe przechodzą dalsze kontrole guarda (§11.1).
+
 ### 11.1 Aktualna powierzchnia HTTP/API
 - Routing aplikacji ładuje kontrolery z `app/src/**/Ui/Http/Api/` i dodaje prefix `/api`.
 - Aktualne kontrolery HTTP zwracają JSON. Repozytorium nie zawiera runtime aplikacji przeglądarkowej, więc takiego konsumenta ani jego kontraktów nie zakładamy na podstawie materiałów zewnętrznych.
 - Publiczny kontrakt endpointu obejmuje ścieżkę, metodę HTTP, input, status odpowiedzi i payload JSON. Zmiana któregokolwiek z tych elementów jest zmianą publicznej powierzchni HTTP i wymaga jawnego zakresu zadania oraz aktualizacji testów zachowania.
 - Route name jest wewnętrznym kontraktem routingu i security, a nie częścią publicznego kontraktu HTTP. Nowe albo zmienione route names wymagają sprawdzenia prefiksu `platform_`, konfiguracji wymagań dostępu dla tras i allowlisty `TenantGuardSubscriber` oraz subscriberów reagujących na konkretną route.
-- Po uwzględnieniu wyjątków dla platformy i allowlisty `TenantGuardSubscriber` dopuszcza tylko trasy z `ADMIN_REQUIRED_ROUTE_NAMES`, wymagając aktywnego członkostwa administratora klienta. Pozostałe trasy objęte guardem kończą się odmową dostępu. Dodanie trasy dla zwykłego członka wymaga rozszerzenia konfiguracji i obsługi wymagań dostępu w guardzie.
+- Po uwzględnieniu wyjątków dla platformy i allowlisty `TenantGuardSubscriber` wymaga `user_id` istniejącego, niezablokowanego użytkownika. Trasy z `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` nie wymagają aktywnego klienta. Dla pozostałych guard wymaga `active_client_id`, zgodności `{clientId}` z trasy z aktywnym klientem i aktywnego członkostwa, a dopuszcza tylko trasy z `ADMIN_REQUIRED_ROUTE_NAMES`, wymagając roli administratora klienta. Pozostałe trasy objęte guardem kończą się odmową dostępu. Dodanie trasy dla zwykłego członka wymaga rozszerzenia konfiguracji i obsługi wymagań dostępu w guardzie.
+- Odmowy guarda zwracają `{"error": "Access denied"}` z kodem 401 albo 403. Jedynym rozróżnialnym przypadkiem jest brak aktywnego klienta na trasie tenantowej: `403 {"error": "active_client_required"}`.
+- Endpointy sesji zalogowanego użytkownika (`User/Ui/Http/Api/ActiveClientController`):
+  - `GET /api/me/clients` (`api_me_clients_list`) → 200 z listą aktywnych członkostw użytkownika: `[{"clientId": "...", "clientName": "...", "roles": ["admin"]}]`. Zawieszone członkostwa nie są zwracane; użytkownik bez członkostw dostaje `[]`. API nigdy nie wybiera klienta automatycznie, również przy jednym elemencie listy.
+  - `POST /api/session/active-client` (`api_session_active_client_select`) z `{"clientId": "<uuid>"}` → 204 bez treści; w sesji zapisywany jest UUID małymi literami, zgodny z identyfikatorami z `GET /api/me/clients`. Klient bez aktywnego członkostwa użytkownika (obcy, zawieszony, nieistniejący) → `403 {"error": "Access denied"}`; `clientId` niebędący UUID → 400 z błędami walidacji.
+  - `POST /api/auth/otp/verify` zachowuje kontrakt `{"ok": true}` / `{"ok": false}`.
 
 ## 12. Test strategy (minimum)
 - Domain unit: testujemy zachowanie agregatów z FakeOutside i deterministycznym czasem.

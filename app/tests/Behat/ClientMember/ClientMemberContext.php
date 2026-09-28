@@ -169,6 +169,17 @@ final class ClientMemberContext implements Context
         ));
     }
 
+    /**
+     * @Then response error should be :error
+     */
+    public function responseErrorShouldBe(string $error): void
+    {
+        Assert::assertSame(
+            ['error' => $error],
+            json_decode((string) $this->client->getResponse()->getContent(), true, 512, \JSON_THROW_ON_ERROR),
+        );
+    }
+
     // ========================================
     // Then: Query-based state verification
     // ========================================

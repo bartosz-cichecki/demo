@@ -61,6 +61,7 @@ final readonly class OtpAuthController extends AbstractController
         $session = $request->getSession();
         $session->migrate(true);
         $session->set('user_id', $user->id);
+        $session->remove('active_client_id');
 
         return new JsonResponse(['ok' => true]);
     }

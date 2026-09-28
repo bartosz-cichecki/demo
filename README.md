@@ -115,11 +115,11 @@ Outcome: a new tenant workspace is ready for membership provisioning.
 
 Actors: existing user with a membership
 
-POST OTP request -> read the code from the demo mailbox -> POST OTP verify with that code -> `ok: true` -> challenge consumed -> session holds user ID and active client ID
+POST OTP request -> read the code from the demo mailbox -> POST OTP verify with that code -> `ok: true` -> challenge consumed -> session holds user ID and no active client -> POST select active client -> session holds active client ID
 
-Outcome: user is logged in through a passwordless flow; active tenant context is set.
+Outcome: user is logged in through a passwordless flow and explicitly chooses the active tenant context.
 
-For local delivery, each allowed request appends a JSON line with `email` and `code` to `app/var/notifications/otp.jsonl` (inside the container: `/var/www/app/var/notifications/otp.jsonl`). Read the latest message for the recipient and send its code to `POST /api/auth/otp/verify` as `{"email":"user@example.com","code":"123456"}`; use the actual delivered code. The request endpoint is `POST /api/auth/otp/request` with `{"email":"user@example.com"}`. Preserve cookies between requests to keep the login session.
+For local delivery, each allowed request appends a JSON line with `email` and `code` to `app/var/notifications/otp.jsonl` (inside the container: `/var/www/app/var/notifications/otp.jsonl`). Read the latest message for the recipient and send its code to `POST /api/auth/otp/verify` as `{"email":"user@example.com","code":"123456"}`; use the actual delivered code. The request endpoint is `POST /api/auth/otp/request` with `{"email":"user@example.com"}`. Preserve cookies between requests to keep the login session. After login, `GET /api/me/clients` lists the user's active memberships and `POST /api/session/active-client` with `{"clientId":"..."}` selects or switches the active client; tenant routes return `403 {"error":"active_client_required"}` until one is selected.
 
 The factory enforces a 60-second cooldown independently for email and IP. Blocked requests still return `200 {"ok":true}` and write neither a challenge nor a message. Tests use a separate mailbox, `app/var/notifications/otp.test.jsonl`. File delivery happens before the database commit; a later commit failure does not undo the message in this local demo.
 
