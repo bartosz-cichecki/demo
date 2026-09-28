@@ -25,11 +25,15 @@ This backlog is not a list of every tool that could be added to the repository. 
 | 2 | OTP cooldown decision in Domain | DONE | 2026-09-26 | 2026-09-26 | Apply architecture §6–6.1 to OTP issuance |
 | 3 | OTP verification attempt limit in Domain | DONE | 2026-09-26 | 2026-09-26 | Keep the rule in the aggregate and commit failed attempts |
 | 4 | Client membership uniqueness in Domain | DONE | 2026-09-28 | 2026-09-28 | Centralize validation shared by both creation handlers |
-| 5 | Mermaid architecture flow | TODO | 2026-04-30 | — | Show the main architecture flow in 30 seconds |
-| 6 | README first screen polish | TODO | 2026-04-30 | — | Explain quickly what the demo is and what it proves |
-| 7 | Architecture Decision Records | TODO | 2026-04-30 | — | Show conscious decisions and trade-offs |
-| 8 | Repository hygiene | TODO | 2026-04-30 | — | Remove basic red flags from a public repository |
-| 9 | Dependabot | TODO | 2026-04-30 | — | Add automated dependency hygiene |
+| 5 | Explicit client selection and membership invitations | TODO | 2026-09-28 | — | Real multi-tenant flow with consent and cross-BC async |
+| 5.1 | Explicit active client selection | TODO | 2026-09-28 | — | Replace the implicit UUID-ordered client choice at login |
+| 5.2 | Client membership invitations | TODO | 2026-09-28 | — | Membership requires user consent; async notification Client → User |
+| 5.3 | Client onboarding invites the first admin | TODO | 2026-09-28 | — | Close the gap where only fixtures create client admins |
+| 6 | Mermaid architecture flow | TODO | 2026-09-28 | — | Show the main architecture flow in 30 seconds |
+| 7 | README first screen polish | TODO | 2026-04-30 | — | Explain quickly what the demo is and what it proves |
+| 8 | Architecture Decision Records | TODO | 2026-04-30 | — | Show conscious decisions and trade-offs |
+| 9 | Repository hygiene | TODO | 2026-04-30 | — | Remove basic red flags from a public repository |
+| 10 | Dependabot | TODO | 2026-04-30 | — | Add automated dependency hygiene |
 
 ---
 
@@ -158,7 +162,100 @@ Verification: [factory tests](../app/tests/Client/Domain/ClientMember/ClientMemb
 
 ---
 
-## 5. Mermaid architecture flow
+## 5. Explicit client selection and membership invitations
+
+Status: `TODO`
+
+### Why
+
+An analysis for the architecture diagram (2026-09-28) showed that the current multi-tenant flow is incomplete:
+
+- Login picks the active client implicitly: `ActiveClientIdResolverService` sorts active memberships by `clientId` and takes the first one, only logging a warning. A user with several clients cannot choose or switch.
+- A client admin adds a person through `POST /api/client-members`, which silently creates the user account and an active membership. The person is neither informed nor asked for consent.
+- No HTTP flow creates the first admin of a client. `platform_clients_create` creates a client without members; admins exist only through Behat fixtures (`CreateClientMemberCommand`), and every later admin action requires an existing admin. A fresh instance cannot operate a client.
+- The only async flow (`UserRegisteredIntegrationEvent`) is consumed in the same BC and writes a notification with little business value.
+
+Invitations with explicit acceptance give the demo a real business flow: consent to membership, explicit tenant choice, client onboarding that ends with an admin, and an async integration event consumed by another BC.
+
+Deliver in three iterations. Each one ends with green quality gates and can be merged separately. 5.2 depends on 5.1; 5.3 depends on 5.2.
+
+### 5.1 Explicit active client selection
+
+Scope:
+
+- `POST /api/auth/otp/verify` logs the user in without setting `active_client_id`, regardless of the number of memberships. Its HTTP contract is unchanged (`{"ok": true}`).
+- A user without any active membership can log in. Remove the login denial and the implicit choice (`ActiveClientIdOnLoginSubscriber`, `ActiveClientIdResolverService`) or reduce them to what is still needed.
+- `GET /api/me/clients` returns the user's active memberships (client id, client name, roles). The API never selects automatically; a client application may auto-select when the list has one element.
+- `POST /api/session/active-client` with `{"clientId": "..."}` sets `active_client_id` only for an active membership, otherwise 403. It also switches the client during a session. Migrate the session id on change, as at login.
+- `TenantGuardSubscriber` gets an explicit list of routes that require a logged-in user but no active client. Platform routes (`platform_*`) are unaffected.
+- Tenant routes without an active client return `403 {"error": "active_client_required"}`. Reuse the existing `MISSING_CLIENT_ID` guard branch; today every guard denial returns the same `{"error": "Access denied"}` body, so this is the first distinguishable denial and a deliberate public contract.
+
+Done when:
+
+- Behat covers: login without selection, listing clients (suspended memberships excluded), selection, switching, refused selection of a foreign or suspended membership, tenant route before selection (`active_client_required`), and login of a user without memberships.
+- Existing scenarios that assert `active_client_id` right after verify are rewritten to verify + select.
+- `docs/architecture.md` §11 and §11.1 describe the new session states and routes.
+
+### 5.2 Client membership invitations
+
+Scope:
+
+- New `ClientInvitation` aggregate in Client: `clientId`, `email`, role (`user` or `admin`), status `pending` / `accepted` / `rejected` / `revoked`, timestamps. No expiry.
+- Invariants in `ClientInvitationFactory`, with facts from Outside (same pattern as membership uniqueness in item 4):
+  - at most one pending invitation per `(clientId, email)`, backed by a partial unique index;
+  - refused when a user with that email already has a membership in the client, active or suspended. Outside reads the user through Client's own Infrastructure ACL (§4.1); no user means no membership.
+  - Refusals map to HTTP 409.
+- `ClientInvitation` allows transitions only from `pending` and carries a version column (`#[ORM\Version]`, optimistic locking). Concurrent transitions (accept vs revoke, reject vs revoke, accept vs accept) make the second flush fail; `CommandBus` rolls back the whole transaction, including a membership created by accept, and the controller returns 409.
+- Client admin (tenant routes, `ADMIN_REQUIRED_ROUTE_NAMES`): create an invitation with role `user` only, and revoke invitations with role `user`. Role `admin` is granted by invitation only from the platform (5.3); promotion of an accepted member stays with `PUT /api/clients/{clientId}/members/{userId}/roles`.
+- Invited user (logged in, no active client required): `GET /api/me/invitations`, `POST /api/invitations/{id}/accept`, `POST /api/invitations/{id}/reject`. Only the user whose email matches the invitation may act on it; Client reads the current user's email through its ACL.
+- Accept: `CommandBus` atomically stores `accepted` and creates the `ClientMember` through `ClientMemberFactory`. Only after a successful commit does the controller set the new client as `active_client_id` and migrate the session, as `OtpAuthController::verifyOtp` does today. If a membership already exists at accept time, return 409 and keep the invitation `pending`; the admin can revoke it.
+- Async notification: a Client saga translates `ClientInvitationCreated` into `ClientInvitationCreatedIntegrationEvent` (with client name and role). A User `IntegrationEventSubscriber` sends one notification to the invited email through the User notification port ("you were invited to X, log in to respond"). No magic link: the user responds after an OTP login.
+- Replace `POST /api/client-members` with the invitation. Remove `ProvisionClientMember*`, `UserProvisioningServiceInterface` / `UserProvisioningService`, and `UpsertUserByEmailCommand` if nothing else uses it. User accounts are then created only by OTP login.
+- Remove the user registration notification, which the invitation notification replaces: `SendUserRegisteredNotificationSubscriber`, `sendUserRegisteredNotification`, `UserRegisteredSaga`, `UserRegisteredIntegrationEvent`, the `app.user_registered_notification_log_path` parameter and their tests. Keep the `UserRegistered` domain event; it is still recorded and stored in the event log. Doing both in one iteration keeps an async example in the demo at every step.
+
+Done when:
+
+- Domain tests cover the invariants and transitions.
+- Behat covers: invite → notification after the worker runs → OTP login → list → accept → member of the client with that client active; reject; revoke; duplicate pending invitation; invitation of an existing active or suspended member; a user acting on someone else's invitation; a non-admin inviting; a client admin trying to invite with role `admin`.
+- The notification is written exactly once after repeated worker runs.
+- Integration tests prove the optimistic lock. Between loading the invitation and flushing, a second writer on a separate connection updates status and `version` and commits (a change on the same connection would join the `CommandBus` transaction and be rolled back with it; without a `version` change Doctrine detects no conflict). Assert that the first writer gets `OptimisticLockException`, its membership is rolled back, and the invitation keeps the second writer's state (accept vs revoke → `revoked`, no membership). The same for reject vs revoke. Behat cannot produce a real race.
+- Deptrac and `BoundedContextDependenciesTest` allow the new cross-BC subscriber and still reject other foreign imports; probes that reference `UserRegisteredIntegrationEvent` point to the invitation event.
+- No reference to the removed classes remains in `app/`, `docs/` or the README.
+- `docs/architecture.md` §4.2 no longer uses `UserProvisioningService` as its example; README `Key flows` reflects the new flow.
+
+### 5.3 Client onboarding invites the first admin
+
+Scope:
+
+- `POST /api/clients` (`platform_clients_create`) requires `adminEmail`. One command creates the `Client` and a `ClientInvitation` with role `admin` in the same transaction. The rest is the 5.2 flow: async notification, OTP login, accept, membership with role `admin`.
+- Recovery route for the platform admin: invite an admin to an existing client (for example `POST /api/clients/{clientId}/admin-invitations`, route name with the `platform_` prefix). It covers a rejected first invitation and a client that lost its admins. Same factory and invariants as 5.2.
+- Revoke route for the platform admin: revoke the pending admin invitation of a client by email (for example `POST /api/clients/{clientId}/admin-invitations/revoke` with `{"email": "..."}`, `platform_` prefix). The pending invitation is unique per `(clientId, email)`, so no invitation id or listing endpoint is needed. Without it, a mistyped `adminEmail` would leave a non-expiring admin grant to the owner of the wrong address.
+- Invitations with role `admin` can be created and revoked only through these platform routes.
+- `CreateClientMemberCommand` stays only as a Behat fixture tool; state this explicitly in code or docs so it does not read as a production path. Fixtures keep using it; rewriting them to the full invitation flow would slow every scenario without adding coverage.
+
+Done when:
+
+- Behat covers: platform creates a client with `adminEmail` → notification → OTP login → accept → admin of the new client; a missing `adminEmail` is rejected; the recovery route after a rejected first invitation; revoking a mistyped admin invitation, after which accepting it is refused, then inviting the correct email; a non-platform user calling any of these routes is refused.
+- The updated `platform_clients_create` contract is reflected in Behat and `docs/architecture.md` §11.1.
+
+### Notes
+
+Decisions made on 2026-09-28:
+
+- No automatic client selection in the API; a dedicated `GET /api/me/clients` instead of extending the verify response.
+- Invitations replace direct provisioning; the invitation notification replaces the registration notification.
+- Client admins invite and revoke with role `user` only; role `admin` is granted and revoked by the platform.
+- Invitation transitions use optimistic locking.
+- No expiry; admins can revoke; admins are not notified about acceptance or rejection.
+- Client onboarding always ends with an admin invitation.
+
+Out of scope: magic-link login, invitation expiry, admin notifications, custom roles beyond `user` / `admin`.
+
+Follow-up candidate, not scheduled: the invariant "a client keeps at least one active admin". Today neither `replaceRoles` nor `suspend` prevents removing the last admin; the 5.3 recovery route fixes the consequence, not the cause. The rule spans several memberships, so it needs an Outside fact and protection against concurrent changes.
+
+---
+
+## 6. Mermaid architecture flow
 
 Status: `TODO`
 
@@ -187,13 +284,15 @@ HTTP
 
 ### Notes
 
+Blocked by item 5. The 2026-09-28 analysis showed that the chain above does not match the code: nested command dispatch, `flush` before event handling, EventLog and EventBus called side by side rather than in sequence, the commit boundary between the outbox write and the worker, and a same-BC consumer. After item 5, base the diagram on the invitation flow and verify each step against the code.
+
 The diagram supports understanding. It does not replace the architecture documentation. Keep it simple and readable. Do not introduce full C4 diagrams or a complete dependency map.
 
 Do this before the README polish, because the diagram becomes direct input for the README architecture section.
 
 ---
 
-## 6. README first screen polish
+## 7. README first screen polish
 
 Status: `TODO`
 
@@ -221,7 +320,7 @@ The current README already has a `Key flows` section based on real Behat scenari
 
 ---
 
-## 7. Architecture Decision Records
+## 8. Architecture Decision Records
 
 Status: `TODO`
 
@@ -298,7 +397,7 @@ Keep ADRs short. Their purpose is to defend trade-offs and show reasoning, not t
 
 ---
 
-## 8. Repository hygiene
+## 9. Repository hygiene
 
 Status: `TODO`
 
@@ -320,7 +419,7 @@ Keep this minimal. These files should help repository readers. They should not p
 
 ---
 
-## 9. Dependabot
+## 10. Dependabot
 
 Status: `TODO`
 
