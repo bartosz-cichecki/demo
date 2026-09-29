@@ -13,6 +13,9 @@ Feature: User registration
         And the latest OTP challenge for "otp-user@example.com" should be consumed
         And the user with email "otp-user@example.com" should be logged in
         And session should contain user id for "otp-user@example.com"
+        And session should not contain active client id
+        When I select active client "acme"
+        Then the response status should be 204
         And session should contain active client id for "acme"
 
     Scenario Outline: Cooldown silently blocks delivery for the same email or IP
@@ -47,7 +50,7 @@ Feature: User registration
         And there should be 1 OTP challenges for "second@example.com"
         And I can read the delivered OTP for "second@example.com" from the demo mailbox
 
-    Scenario Outline: OTP login selects an active membership and skips a suspended admin membership
+    Scenario Outline: OTP login leaves client selection to the user, who can select only an active membership
         Given there is a client "alpha"
         And there is a client "beta"
         And there is a user "mixed_member" with email "mixed-member@example.com"
@@ -58,6 +61,12 @@ Feature: User registration
         And I verify OTP for email "mixed-member@example.com" with code "123456"
         Then OTP verify response should be ok true
         And session should contain user id for "mixed-member@example.com"
+        And session should not contain active client id
+        When I select active client "<suspended_client>"
+        Then the response status should be 403
+        And session should not contain active client id
+        When I select active client "<active_client>"
+        Then the response status should be 204
         And session should contain active client id for "<active_client>"
 
         Examples:
@@ -133,12 +142,7 @@ Feature: User registration
         Then OTP verify response should be ok true
         And the latest OTP challenge for "otp-recovery@example.com" should be consumed
         And session should contain user id for "otp-recovery@example.com"
+        And session should not contain active client id
+        When I select active client "otp-recovery-client"
+        Then the response status should be 204
         And session should contain active client id for "otp-recovery-client"
-
-    Scenario: Registered user notification is processed asynchronously
-        When I register user "new_user" with email "new-user@example.com"
-        Then an integration event for registered user "new-user@example.com" should be stored in the outbox
-        When the integration events are processed
-        Then a user registration notification for "new-user@example.com" should be stored
-        When the integration events are processed
-        Then exactly one user registration notification for "new-user@example.com" should be stored

@@ -83,7 +83,12 @@ The underlying aggregates are small, but they model real business responsibiliti
 ### `ClientMember`
 
 - **Protects**: only `admin` and `user` roles are valid; a suspended member's status cannot skip directly to active without an explicit unsuspend.
-- **Enables**: per-tenant role-based access control: provision members, change roles, suspend/unsuspend access.
+- **Enables**: per-tenant role-based access control: members join by accepting an invitation; admins change roles and suspend/unsuspend access.
+
+### `ClientInvitation`
+
+- **Protects**: at most one pending invitation per client and email; no invitation for a person who already has a membership, active or suspended; a client admin invites and revokes only with role `user`; only the invited email can accept or reject; transitions happen only from `pending` and concurrent transitions are rejected by optimistic locking.
+- **Enables**: membership with the invitee's consent; accepting creates the membership and the invitation status change atomically.
 
 ### `User`
 
@@ -107,7 +112,7 @@ Actors: platform admin
 
 User exists -> admin authenticates as platform admin -> POST create-client "Acme Corporation" -> 201 -> client persisted
 
-Outcome: a new tenant workspace is ready for membership provisioning.
+Outcome: a new tenant workspace is ready for membership invitations.
 
 ### 2. OTP login: happy path
 
@@ -115,23 +120,25 @@ Outcome: a new tenant workspace is ready for membership provisioning.
 
 Actors: existing user with a membership
 
-POST OTP request -> read the code from the demo mailbox -> POST OTP verify with that code -> `ok: true` -> challenge consumed -> session holds user ID and active client ID
+POST OTP request -> read the code from the demo mailbox -> POST OTP verify with that code -> `ok: true` -> challenge consumed -> session holds user ID and no active client -> POST select active client -> session holds active client ID
 
-Outcome: user is logged in through a passwordless flow; active tenant context is set.
+Outcome: user is logged in through a passwordless flow and explicitly chooses the active tenant context.
 
-For local delivery, each allowed request appends a JSON line with `email` and `code` to `app/var/notifications/otp.jsonl` (inside the container: `/var/www/app/var/notifications/otp.jsonl`). Read the latest message for the recipient and send its code to `POST /api/auth/otp/verify` as `{"email":"user@example.com","code":"123456"}`; use the actual delivered code. The request endpoint is `POST /api/auth/otp/request` with `{"email":"user@example.com"}`. Preserve cookies between requests to keep the login session.
+For local delivery, each allowed request appends a JSON line with `email` and `code` to `app/var/notifications/otp.jsonl` (inside the container: `/var/www/app/var/notifications/otp.jsonl`). Read the latest message for the recipient and send its code to `POST /api/auth/otp/verify` as `{"email":"user@example.com","code":"123456"}`; use the actual delivered code. The request endpoint is `POST /api/auth/otp/request` with `{"email":"user@example.com"}`. Preserve cookies between requests to keep the login session. After login, `GET /api/me/clients` lists the user's active memberships and `POST /api/session/active-client` with `{"clientId":"..."}` selects or switches the active client; tenant routes return `403 {"error":"active_client_required"}` until one is selected.
 
 The factory enforces a 60-second cooldown independently for email and IP. Blocked requests still return `200 {"ok":true}` and write neither a challenge nor a message. Tests use a separate mailbox, `app/var/notifications/otp.test.jsonl`. File delivery happens before the database commit; a later commit failure does not undo the message in this local demo.
 
-### 3. Admin provisions a new member
+### 3. Admin invites a person who accepts after OTP login
 
-`app/tests/Behat/features/client_member/client_member_management.feature` - "admin provisions a new member by email"
+`app/tests/Behat/features/client_invitation/client_invitation.feature` - "Invitee is notified asynchronously, logs in with OTP, accepts and works in the client"
 
-Actors: tenant admin
+Actors: tenant admin, invited person, outbox worker
 
-Admin logged in -> POST provision-member with new email -> membership created with role `user`, status `active` -> client now has 2 members
+Admin `POST /api/clients/{clientId}/invitations` with email and role `user` -> 201, invitation `pending`, no user account is created -> `ClientInvitationCreated` domain event -> Client saga publishes `ClientInvitationCreatedIntegrationEvent` to the outbox in the same transaction -> worker (`app:process-outbox`) runs User's async subscriber -> one notification "you were invited to X, log in to respond" in `app/var/notifications/user_notifications.jsonl` -> invitee logs in with OTP (the account is created here) -> `GET /api/me/invitations` -> `POST /api/invitations/{id}/accept` -> invitation `accepted` and membership with role `user` in one transaction -> after commit the session's active client is the new client
 
-Outcome: new user gets access to the tenant workspace with the default `user` role.
+Outcome: membership requires consent, and the demo shows a real cross-BC async flow (Client -> integration event -> User) with a notification delivered exactly once even when the worker runs repeatedly.
+
+The same feature covers rejecting, revoking by the admin, a duplicate pending invitation, inviting an active or suspended member (409), acting on someone else's invitation (404), inviting without the admin role and inviting with role `admin` as a client admin (403). Real concurrent transitions (accept vs revoke, reject vs revoke, accept vs accept) are covered by `app/tests/Client/Infrastructure/ClientInvitation/ClientInvitationConcurrencyIntegrationTest.php` with an independent writer on a separate connection.
 
 ### 4. Admin suspends and unsuspends a member
 
@@ -152,13 +159,3 @@ Actors: tenant user (non-platform)
 Tenant member logged in -> POST create-client -> 403
 
 Outcome: platform-admin operations are fully gated from tenant users.
-
-### 6. User registration publishes an async notification
-
-`app/tests/Behat/features/user/user_registration.feature` - "Registered user notification is processed asynchronously"
-
-Actors: system
-
-User is registered -> `UserRegistered` domain event -> saga publishes `UserRegisteredIntegrationEvent` -> outbox stores event -> worker processes integration events -> file notification is written once
-
-Outcome: demo shows a full async flow without a broker: domain event, integration event, outbox worker, async subscriber, and idempotent side effect.

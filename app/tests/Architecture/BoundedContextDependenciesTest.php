@@ -32,14 +32,14 @@ final class BoundedContextDependenciesTest extends TestCase
 
     public function testExistingCodeAndPublicContractsAreAllowed(): void
     {
-        // The copied sources include the real provisioning/ACL adapters and all Outsides.
+        // The copied sources include the real ACL adapters, the invitation subscriber and all Outsides.
         $this->addDependency('Client\\Infrastructure\\QueryProbe', 'User\\Application\\User\\Query\\UserQueryInterface');
-        $this->addDependency('Client\\Infrastructure\\CommandProbe', 'User\\Application\\User\\Command\\UpsertUserByEmail\\UpsertUserByEmailCommand');
+        $this->addDependency('Client\\Infrastructure\\CommandProbe', 'User\\Application\\User\\Command\\LogInUserByEmail\\LogInUserByEmailCommand');
         $this->addDependency('Client\\Infrastructure\\DtoProbe', 'User\\Application\\User\\Query\\Dto\\UserDto');
         $this->addDependency('Client\\Domain\\OutsideProbe', 'Client\\Domain\\Client\\Outside\\ClientOutsideInterface');
-        $this->addDependency('Client\\Application\\IntegrationEventSubscriber\\UserRegisteredSubscriber', 'User\\Application\\IntegrationEvent\\UserRegisteredIntegrationEvent');
-        $this->addDependency('SharedKernel\\Application\\EventProbe', 'User\\Application\\IntegrationEvent\\UserRegisteredIntegrationEvent');
-        $this->addDependency('SharedKernel\\Infrastructure\\SubscriberProbe', 'User\\Application\\IntegrationEventSubscriber\\SendUserRegisteredNotificationSubscriber');
+        $this->addDependency('User\\Application\\IntegrationEventSubscriber\\ProbeSubscriber', 'Client\\Application\\IntegrationEvent\\ClientInvitationCreatedIntegrationEvent');
+        $this->addDependency('SharedKernel\\Application\\EventProbe', 'Client\\Application\\IntegrationEvent\\ClientInvitationCreatedIntegrationEvent');
+        $this->addDependency('SharedKernel\\Infrastructure\\SubscriberProbe', 'User\\Application\\IntegrationEventSubscriber\\SendClientInvitationNotificationSubscriber');
         $this->addDependency('SharedKernel\\Infrastructure\\ClientQueryProbe', 'Client\\Infrastructure\\Client\\ClientQuery');
         $this->addDependency('SharedKernel\\Ui\\ClientOutsideProbe', 'Client\\Domain\\Client\\Outside\\ClientOutsideInterface');
 
@@ -51,20 +51,20 @@ final class BoundedContextDependenciesTest extends TestCase
     public function testForbiddenDependenciesAreRejected(): void
     {
         $dependencies = [
-            'Client\\Application\\ForeignEvent' => 'User\\Application\\IntegrationEvent\\UserRegisteredIntegrationEvent',
-            'Client\\Domain\\ForeignEvent' => 'User\\Application\\IntegrationEvent\\UserRegisteredIntegrationEvent',
-            'Client\\Ui\\ForeignEvent' => 'User\\Application\\IntegrationEvent\\UserRegisteredIntegrationEvent',
-            'Client\\Infrastructure\\ForeignEvent' => 'User\\Application\\IntegrationEvent\\UserRegisteredIntegrationEvent',
-            'Client\\Application\\Other\\WrongPathSubscriber' => 'User\\Application\\IntegrationEvent\\UserRegisteredIntegrationEvent',
-            'Client\\Application\\IntegrationEventSubscriber\\WrongSuffix' => 'User\\Application\\IntegrationEvent\\UserRegisteredIntegrationEvent',
+            'User\\Application\\ForeignEvent' => 'Client\\Application\\IntegrationEvent\\ClientInvitationCreatedIntegrationEvent',
+            'User\\Domain\\ForeignEvent' => 'Client\\Application\\IntegrationEvent\\ClientInvitationCreatedIntegrationEvent',
+            'User\\Ui\\ForeignEvent' => 'Client\\Application\\IntegrationEvent\\ClientInvitationCreatedIntegrationEvent',
+            'User\\Infrastructure\\ForeignEvent' => 'Client\\Application\\IntegrationEvent\\ClientInvitationCreatedIntegrationEvent',
+            'User\\Application\\Other\\WrongPathSubscriber' => 'Client\\Application\\IntegrationEvent\\ClientInvitationCreatedIntegrationEvent',
+            'User\\Application\\IntegrationEventSubscriber\\WrongSuffix' => 'Client\\Application\\IntegrationEvent\\ClientInvitationCreatedIntegrationEvent',
             'Client\\Application\\IntegrationEventSubscriber\\ForeignQuerySubscriber' => 'User\\Application\\User\\Query\\UserQueryInterface',
-            'Client\\Application\\IntegrationEventSubscriber\\ForeignHandlerSubscriber' => 'User\\Application\\User\\Command\\UpsertUserByEmail\\UpsertUserByEmailCommandHandler',
+            'Client\\Application\\IntegrationEventSubscriber\\ForeignHandlerSubscriber' => 'User\\Application\\User\\Command\\LogInUserByEmail\\LogInUserByEmailCommandHandler',
             'Client\\Application\\IntegrationEventSubscriber\\OwnOutsideSubscriber' => 'Client\\Domain\\Client\\Outside\\ClientOutsideInterface',
             'Client\\Application\\ForeignQuery' => 'User\\Application\\User\\Query\\UserQueryInterface',
-            'Client\\Ui\\ForeignCommand' => 'User\\Application\\User\\Command\\UpsertUserByEmail\\UpsertUserByEmailCommand',
+            'Client\\Ui\\ForeignCommand' => 'User\\Application\\User\\Command\\LogInUserByEmail\\LogInUserByEmailCommand',
             'Client\\Domain\\ForeignDto' => 'User\\Application\\User\\Query\\Dto\\UserDto',
             'Client\\Infrastructure\\ForeignRepository' => 'User\\Domain\\User\\Repository\\UserRepositoryInterface',
-            'Client\\Infrastructure\\ForeignHandler' => 'User\\Application\\User\\Command\\UpsertUserByEmail\\UpsertUserByEmailCommandHandler',
+            'Client\\Infrastructure\\ForeignHandler' => 'User\\Application\\User\\Command\\LogInUserByEmail\\LogInUserByEmailCommandHandler',
             'Client\\Infrastructure\\ForeignImplementation' => 'User\\Infrastructure\\User\\UserQuery',
             'Client\\Infrastructure\\ForeignService' => 'User\\Application\\OtpChallenge\\Service\\ValueHasherServiceInterface',
             'Client\\Application\\OwnOutside' => 'Client\\Domain\\Client\\Outside\\ClientOutsideInterface',
@@ -107,7 +107,7 @@ final class BoundedContextDependenciesTest extends TestCase
             $this->addDependency($target, 'SharedKernel\\Application\\IntegrationEvent\\IntegrationEvent');
             $this->addDependency('Client\\Application\\IntegrationEventSubscriber\\FooEvent' . $index . 'Subscriber', $target);
         }
-        $this->addDependency('Foo\\Application\\IntegrationEventSubscriber\\UserRegisteredSubscriber', 'User\\Application\\IntegrationEvent\\UserRegisteredIntegrationEvent');
+        $this->addDependency('Foo\\Application\\IntegrationEventSubscriber\\ClientInvitationCreatedSubscriber', 'Client\\Application\\IntegrationEvent\\ClientInvitationCreatedIntegrationEvent');
         $this->addDependency('Foo\\Application\\IntegrationEventSubscriber\\OwnCommandSubscriber', 'Foo\\Application\\Foo\\Command\\DirectCommand');
         $this->addDependency('Foo\\Application\\PublishEvent', 'Foo\\Application\\IntegrationEvent\\CreatedIntegrationEvent');
         $this->addDependency('Foo\\Application\\IntegrationEvent\\Helper', 'Foo\\Domain\\Standalone');
@@ -120,8 +120,8 @@ final class BoundedContextDependenciesTest extends TestCase
         self::assertSame([], $this->violationMessages($process));
 
         $this->assertRejectedDependencies([
-            'Foo\\Application\\IntegrationEventSubscriber\\Nested\\UserRegisteredSubscriber' => 'User\\Application\\IntegrationEvent\\UserRegisteredIntegrationEvent',
-            'Foo\\Application\\ForeignEvent' => 'User\\Application\\IntegrationEvent\\UserRegisteredIntegrationEvent',
+            'Foo\\Application\\IntegrationEventSubscriber\\Nested\\ClientInvitationCreatedSubscriber' => 'Client\\Application\\IntegrationEvent\\ClientInvitationCreatedIntegrationEvent',
+            'Foo\\Application\\ForeignEvent' => 'Client\\Application\\IntegrationEvent\\ClientInvitationCreatedIntegrationEvent',
             'Client\\Application\\ForeignFooEvent' => 'Foo\\Application\\IntegrationEvent\\CreatedIntegrationEvent',
             'Client\\Infrastructure\\ForeignFooEvent' => 'Foo\\Application\\IntegrationEvent\\CreatedIntegrationEvent',
             'Client\\Application\\IntegrationEventSubscriber\\ForeignHelperSubscriber' => 'Foo\\Application\\IntegrationEvent\\Helper',

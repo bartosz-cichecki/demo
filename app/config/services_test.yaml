@@ -1,6 +1,7 @@
 parameters:
     app.platform_admin_emails: ['admin@example.com']
     app.otp_mailbox_path: '%kernel.project_dir%/var/notifications/otp.test.jsonl'
+    app.user_notification_log_path: '%kernel.project_dir%/var/notifications/user_notifications.test.jsonl'
 
 services:
     _defaults:
@@ -20,11 +21,18 @@ services:
         resource: '../tests/SharedKernel/Ui/ConsoleCommands/Fixtures/*IntegrationEventSubscriber.php'
         tags: ['app.integration_event_subscriber']
 
+    # One browser per scenario (the kernel is rebooted after each one), shared by all contexts of a suite,
+    # so a session established in one context, such as an OTP login, is used by steps of another context.
+    app.behat.kernel_browser:
+        class: Symfony\Bundle\FrameworkBundle\KernelBrowser
+        arguments: ['@kernel', '%test.client.parameters%', '@test.client.history', '@test.client.cookiejar']
+
     # Behat contexts - FriendsOfBehat will inject dependencies
     App\Tests\Behat\:
         resource: '../tests/Behat/*'
         bind:
-            string $userNotificationLogPath: '%app.user_registered_notification_log_path%'
+            Symfony\Bundle\FrameworkBundle\KernelBrowser $client: '@app.behat.kernel_browser'
+            string $userNotificationLogPath: '%app.user_notification_log_path%'
             string $otpMailboxPath: '%app.otp_mailbox_path%'
 
     # Deterministic OTP code for test environment

@@ -6,5 +6,8 @@ namespace App\User\Application\Notification;
 
 interface UserNotificationSenderServiceInterface
 {
-    public function sendUserRegisteredNotification(string $userId, string $email, string $registeredAt): void;
+    /**
+     * Must be idempotent per invitation: a retried delivery must not notify twice.
+     */
+    public function sendClientInvitationNotification(string $invitationId, string $email, string $clientName, string $role): void;
 }

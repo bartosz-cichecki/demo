@@ -93,7 +93,7 @@ Kontrakt cross-BC (A i B to różne konteksty biznesowe):
 - Async: `Application/IntegrationEventSubscriber A -> IntegrationEvent B` jest dozwolone. To jedyny wyjątek cross-BC dla Application; subscriber zachowuje własne dozwolone zależności Application, w tym zakaz dostępu do Outside.
 - `Domain`, zwykłe `Application` i `Ui` A nie importują żadnej klasy ani interfejsu B, również `IntegrationEvent`. Dla komunikacji sync konsument definiuje własny port; obcy kontrakt zna wyłącznie adapter Infrastructure.
 - `Infrastructure A -> repository (również interface), handler, implementacja, service lub IntegrationEvent B` jest zabronione. Subscriber nie otrzymuje dostępu do obcych kontraktów sync ani innych klas obcego BC.
-- Obcy service interface nie jest automatycznie publicznym kontraktem. Wymaga istniejącego, konkretnie uzasadnionego wyjątku: nazwanych konsumenta i interfejsu, uzasadnienia oraz testu. Aktualnie nie ma takich wyjątków; `UserProvisioningServiceInterface` jest własnym portem Client, a `ValueHasherServiceInterface` jest używany tylko wewnątrz User.
+- Obcy service interface nie jest automatycznie publicznym kontraktem. Wymaga istniejącego, konkretnie uzasadnionego wyjątku: nazwanych konsumenta i interfejsu, uzasadnienia oraz testu. Aktualnie nie ma takich wyjątków; `ValueHasherServiceInterface` i `UserNotificationSenderServiceInterface` są używane tylko wewnątrz User.
 
 Publiczne kontrakty sync mają namespace `App\{BC}\Application\{moduł}\…\Query\*QueryInterface`, `…\Command\**\*Command` lub `…\Query\Dto\*Dto`. Pod Application jest co najmniej jeden segment modułu/agregatu; QueryInterface leży bezpośrednio w Query, a DTO bezpośrednio w Query/Dto. `**` pod Command oznacza zero lub więcej segmentów: Command może leżeć bezpośrednio w Command albo w podnamespace przypadku użycia. Katalog Command nie udostępnia handlerów, a sufiks `Interface` nie udostępnia repozytoriów i serwisów.
 
@@ -106,13 +106,15 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 - Jeśli kontekst A potrzebuje danych z kontekstu B, definiuje własny port odczytu (dla Domain: własny Outside). Adapter tego portu w Infrastructure A korzysta z publicznego `QueryInterface` kontekstu B. Domain nie odwołuje się bezpośrednio do obcego Query.
 - Kontekst A definiuje własne DTO i mapuje dane z DTO kontekstu B — nie reeksportuje obcych DTO wyżej niż warstwa Infrastructure (Anti-Corruption Layer).
 - Zaleta monolitu modularnego: zależność jest compile-time, bez serializacji i sieci, a granice kontekstów są jawne w namespace'ach i adapterach.
-- Przykład: `User/Infrastructure/Tenant/ActiveMembershipsQuery` implementuje własny `ActiveMembershipsQueryInterface`, czyta przez `ClientMemberQueryInterface` z Client i mapuje `ClientMemberDto` na własny `ActiveMembershipDto`. Deptrac sprawdza granice zależności; właściciela tabel SQL i poprawność semantyczną mapowania nadal sprawdzamy w review.
+- Przykład: `User/Infrastructure/Tenant/ActiveMembershipsQuery` implementuje własny `ActiveMembershipsQueryInterface`, czyta przez `ClientMemberQueryInterface` i `ClientQueryInterface` z Client i mapuje `ClientMemberDto` oraz nazwę z `ClientDto` na własny `ActiveMembershipDto`. Deptrac sprawdza granice zależności; właściciela tabel SQL i poprawność semantyczną mapowania nadal sprawdzamy w review.
+- Przykład w drugą stronę: `Client/Infrastructure/UserAccount/UserAccountQuery` implementuje własny `UserAccountQueryInterface` Client, czyta przez `UserQueryInterface` z User i zwraca wartości `Email`/`Id` zamiast `UserDto`. Korzystają z niego `ClientInvitationOutside` (e-mail działającego użytkownika i istnienie członkostwa osoby o danym e-mailu) oraz lista zaproszeń zalogowanego użytkownika.
 
 ### 4.2 Przypadek użycia zapisujący cross-BC
 - Jeśli przypadek użycia w kontekście A musi uruchomić zapis należący do kontekstu B, Application kontekstu A zależy od własnego portu.
 - Implementacja tego portu leży w Infrastructure kontekstu A. Adapter może wywołać publiczny Command kontekstu B przez `CommandBus` i odczytać wynik przez publiczny `QueryInterface` kontekstu B.
 - W komunikacji sync Domain, Application i Ui kontekstu konsumującego nie importują żadnych klas obcego BC. Szczegóły obcego kontraktu pozostają w adapterze Infrastructure. Osobny wyjątek async dotyczy wyłącznie subscriberów integration events (§8.1).
-- Przykład: Client jest właścicielem członkostwa, User — użytkownika. Własny port Client `UserProvisioningServiceInterface` implementuje `Client/Infrastructure/ClientMember/UserProvisioningService`, który dispatchuje `UpsertUserByEmailCommand` z User i czyta przez `UserQueryInterface`. Adapter nie wywołuje obcego handlera ani repozytorium.
+- Adapter nie wywołuje obcego handlera ani repozytorium.
+- Aktualnie żaden przypadek użycia nie zapisuje synchronicznie w obcym BC. Client jest właścicielem członkostwa i zaproszeń, User — użytkownika. Zaproszenie nie tworzy konta: konto powstaje wyłącznie przy logowaniu OTP (`LogInUserByEmailCommand`), a powiadomienie o zaproszeniu User wysyła asynchronicznie (§8.1).
 
 ## 5. CQRS-lite (kontrakt zespołowy)
 
@@ -207,6 +209,7 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 - `DbalOutboxPublisher` nadaje techniczne `event_id`, zapisuje `event_name` jako FQCN klasy eventu, payload JSON oraz `created_at` z `ClockInterface` jako UTC storage string.
 - Jeśli sync saga tłumaczy własny `DomainEvent` na własny `IntegrationEvent`, robi to w Application i używa `IntegrationEventPublisherInterface`.
 - Jeśli celem reakcji sync sagi jest async publish, saga nie uruchamia `CommandBus`; publikuje `IntegrationEvent` przez publisher.
+- Przykład: `Client/Application/ClientInvitation/Saga/ClientInvitationSaga` tłumaczy `ClientInvitationCreated` na `ClientInvitationCreatedIntegrationEvent` (id zaproszenia, klient i jego nazwa, e-mail, rola). Zapis do outboxa następuje w transakcji tworzącej zaproszenie. Konsumentem jest `User/Application/IntegrationEventSubscriber/SendClientInvitationNotificationSubscriber`, który wysyła jedno powiadomienie przez własny port User `UserNotificationSenderServiceInterface`. Lokalna implementacja `FileUserNotificationSenderService` dopisuje linię JSON do `var/notifications/user_notifications.jsonl` (w testach `user_notifications.test.jsonl`) i pomija identyczną linię, co chroni przed duplikatem po przerwaniu workera między wysyłką a oznaczeniem `processed` (§9.2).
 - Konwencje DI:
   - sagi sync: `src/*/Application/**/Saga/*Saga.php` z tagiem `app.saga`, wywoływane przez sync `EventBus`
   - async subscribery: `src/*/Application/IntegrationEventSubscriber/*Subscriber.php` z tagiem `app.integration_event_subscriber`, wywoływane przez worker outboxa
@@ -256,6 +259,13 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 - Namespace'y migracji są rejestrowane centralnie w konfiguracji Doctrine Migrations.
 - Generowanie diffu jest targetowane namespace'em kontekstu, ale wykonanie `doctrine:migrations:migrate` obejmuje wspólny zestaw wszystkich zarejestrowanych, oczekujących migracji. Nazwy targetów `migrations-migrate-client` i `migrations-migrate-user` nie oznaczają izolowanego wykonania tylko jednego BC.
 
+### 9.4 Optimistic locking
+- Agregat, którego przejścia mogą konkurować, ma kolumnę wersji (`#[ORM\Version]`). Aktualnie dotyczy to `ClientInvitation` (`client.client_invitations.version`).
+- Doctrine aktualizuje wiersz warunkiem `version = <załadowana wersja>`. Jeśli inna transakcja zatwierdziła zmianę między odczytem a flushem, flush rzuca `OptimisticLockException`, a `CommandBus` wycofuje całą transakcję — łącznie z członkostwem tworzonym przez accept, EventLogiem i outboxem.
+- Równoległe accept tego samego zaproszenia kończy się wcześniej, na unikalnym indeksie `(client_id, user_id)` członkostw (`UniqueConstraintViolationException`), z tym samym skutkiem.
+- Kontroler mapuje oba konflikty na `409 {"error": "Invitation was changed concurrently"}`.
+- `ClientInvitationConcurrencyIntegrationTest` odtwarza prawdziwy wyścig: drugi writer działa w osobno uruchomionym kernelu z własnym EntityManagerem i połączeniem DBAL i zatwierdza zmianę w `preFlush` pierwszego writera. Zmiana na tym samym połączeniu dołączyłaby do transakcji `CommandBus` i zostałaby z nią wycofana.
+
 ## 10. DI i konfiguracja
 - `app/config/services.yaml` jest rootem konfiguracji usług: importuje konwencyjny autoload oraz konfiguracje Infrastructure poszczególnych modułów.
 - `app/config/services.autoload.yaml` rejestruje przez wzorce kontrolery, fabryki, repozytoria, query, Outside, handlery Command, komendy konsolowe, sagi, subscribery integration events, klasy `*Service` oraz pozostałe usługi Infrastructure.
@@ -272,12 +282,29 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 - Flaga `session.is_platform_admin` ustawiana po udanym loginie (`PlatformAdminOnLoginSubscriber`) na podstawie allowlisty `app.platform_admin_emails`.
 - Test architektoniczny (`PlatformRouteNamingTest`) pilnuje, że żaden route nie zawiera substring "platform" bez prefiksu `platform_`.
 
+Stany sesji i wybór aktywnego klienta:
+- Anonimowa (brak `user_id`): dostępne są tylko trasy z allowlisty `TenantGuardSubscriber` (`api_auth_otp_request`, `api_auth_otp_verify`, `/api/health`). Pozostałe trasy objęte guardem zwracają 401, trasy `platform_*` — 403.
+- Zalogowana bez aktywnego klienta: udany `POST /api/auth/otp/verify` migruje identyfikator sesji, ustawia `user_id` i `is_platform_admin`, a usuwa `active_client_id` pozostały z wcześniejszego logowania w tej sesji. Login nigdy nie wybiera klienta i nie wymaga członkostwa. Dostępne są trasy z `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` (`api_me_clients_list`, `api_session_active_client_select`, `api_me_invitations_list`, `api_invitations_accept`, `api_invitations_reject`) oraz trasy `platform_*` dla administratora platformy. Trasa tenantowa zwraca `403 {"error": "active_client_required"}`.
+- Zalogowana z aktywnym klientem: `POST /api/session/active-client` ustawia `active_client_id` wyłącznie dla aktywnego członkostwa użytkownika i migruje identyfikator sesji. Kolejne wywołanie przełącza klienta; odrzucony wybór pozostawia dotychczasowy stan sesji. Udane `POST /api/invitations/{invitationId}/accept` również ustawia klienta zaproszenia jako aktywnego i migruje sesję, ale dopiero po commit; odrzucony accept nie zmienia sesji. Trasy tenantowe przechodzą dalsze kontrole guarda (§11.1).
+
 ### 11.1 Aktualna powierzchnia HTTP/API
 - Routing aplikacji ładuje kontrolery z `app/src/**/Ui/Http/Api/` i dodaje prefix `/api`.
 - Aktualne kontrolery HTTP zwracają JSON. Repozytorium nie zawiera runtime aplikacji przeglądarkowej, więc takiego konsumenta ani jego kontraktów nie zakładamy na podstawie materiałów zewnętrznych.
 - Publiczny kontrakt endpointu obejmuje ścieżkę, metodę HTTP, input, status odpowiedzi i payload JSON. Zmiana któregokolwiek z tych elementów jest zmianą publicznej powierzchni HTTP i wymaga jawnego zakresu zadania oraz aktualizacji testów zachowania.
 - Route name jest wewnętrznym kontraktem routingu i security, a nie częścią publicznego kontraktu HTTP. Nowe albo zmienione route names wymagają sprawdzenia prefiksu `platform_`, konfiguracji wymagań dostępu dla tras i allowlisty `TenantGuardSubscriber` oraz subscriberów reagujących na konkretną route.
-- Po uwzględnieniu wyjątków dla platformy i allowlisty `TenantGuardSubscriber` dopuszcza tylko trasy z `ADMIN_REQUIRED_ROUTE_NAMES`, wymagając aktywnego członkostwa administratora klienta. Pozostałe trasy objęte guardem kończą się odmową dostępu. Dodanie trasy dla zwykłego członka wymaga rozszerzenia konfiguracji i obsługi wymagań dostępu w guardzie.
+- Po uwzględnieniu wyjątków dla platformy i allowlisty `TenantGuardSubscriber` wymaga `user_id` istniejącego, niezablokowanego użytkownika. Trasy z `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` nie wymagają aktywnego klienta. Dla pozostałych guard wymaga `active_client_id`, zgodności `{clientId}` z trasy z aktywnym klientem i aktywnego członkostwa, a dopuszcza tylko trasy z `ADMIN_REQUIRED_ROUTE_NAMES`, wymagając roli administratora klienta. Pozostałe trasy objęte guardem kończą się odmową dostępu. Dodanie trasy dla zwykłego członka wymaga rozszerzenia konfiguracji i obsługi wymagań dostępu w guardzie.
+- Odmowy guarda zwracają `{"error": "Access denied"}` z kodem 401 albo 403. Jedynym rozróżnialnym przypadkiem jest brak aktywnego klienta na trasie tenantowej: `403 {"error": "active_client_required"}`.
+- Endpointy sesji zalogowanego użytkownika (`User/Ui/Http/Api/ActiveClientController`):
+  - `GET /api/me/clients` (`api_me_clients_list`) → 200 z listą aktywnych członkostw użytkownika: `[{"clientId": "...", "clientName": "...", "roles": ["admin"]}]`. Zawieszone członkostwa nie są zwracane; użytkownik bez członkostw dostaje `[]`. API nigdy nie wybiera klienta automatycznie, również przy jednym elemencie listy.
+  - `POST /api/session/active-client` (`api_session_active_client_select`) z `{"clientId": "<uuid>"}` → 204 bez treści; w sesji zapisywany jest UUID małymi literami, zgodny z identyfikatorami z `GET /api/me/clients`. Klient bez aktywnego członkostwa użytkownika (obcy, zawieszony, nieistniejący) → `403 {"error": "Access denied"}`; `clientId` niebędący UUID → 400 z błędami walidacji.
+  - `POST /api/auth/otp/verify` zachowuje kontrakt `{"ok": true}` / `{"ok": false}`.
+- Zaproszenia do klienta (`Client/Ui/Http/Api/ClientInvitationController`). Członkostwo powstaje w produkcji wyłącznie przez akceptację zaproszenia; `CreateClientMemberCommand` nie ma trasy HTTP i służy fixture'om Behat.
+  - `POST /api/clients/{clientId}/invitations` (`api_client_invitations_create`, `ADMIN_REQUIRED_ROUTE_NAMES`) z `{"email": "...", "role": "user"}` → 201 `{"id": "<uuid>"}`. Rola inna niż `user` → `403 {"error": "Client admin can invite only with role user"}`; oczekujące zaproszenie dla tego klienta i e-maila → `409 {"error": "A pending invitation for this email already exists"}`; osoba z członkostwem w kliencie, aktywnym lub zawieszonym → `409 {"error": "User is already a member of this client"}`; niepoprawny input → 400. Zaproszenie nie tworzy konta użytkownika.
+  - `POST /api/clients/{clientId}/invitations/{invitationId}/revoke` (`api_client_invitations_revoke`, `ADMIN_REQUIRED_ROUTE_NAMES`) → 204. Zaproszenie nieistniejące lub innego klienta → `404 {"error": "Not found"}`; zaproszenie z rolą `admin` → `403 {"error": "Client admin can revoke only invitations with role user"}`; status inny niż `pending` → `409 {"error": "Invitation is not pending"}`.
+  - `GET /api/me/invitations` (`api_me_invitations_list`) → 200 `[{"id": "...", "clientId": "...", "clientName": "...", "role": "user", "createdAt": "..."}]`: wyłącznie oczekujące zaproszenia na e-mail zalogowanego użytkownika.
+  - `POST /api/invitations/{invitationId}/accept` (`api_invitations_accept`) → 204. W jednej transakcji zapisuje `accepted` i tworzy członkostwo z rolą zaproszenia przez `ClientMemberFactory`; po commit ustawia `active_client_id` (§11). Zaproszenie nieistniejące albo skierowane na inny e-mail → `404 {"error": "Not found"}`; status inny niż `pending` → `409 {"error": "Invitation is not pending"}`; członkostwo istniejące w chwili accept → `409 {"error": "User is already a member of this client"}`, zaproszenie pozostaje `pending`, a admin może je odwołać.
+  - `POST /api/invitations/{invitationId}/reject` (`api_invitations_reject`) → 204, bez członkostwa; odmowy 404/409 jak przy accept.
+  - Konkurencyjna zmiana zaproszenia w accept, reject albo revoke → `409 {"error": "Invitation was changed concurrently"}` (§9.4). `{invitationId}` niebędący UUID zapisanym małymi literami → 404 z routingu.
 
 ## 12. Test strategy (minimum)
 - Domain unit: testujemy zachowanie agregatów z FakeOutside i deterministycznym czasem.
@@ -291,6 +318,7 @@ Testy w `app/tests/Architecture/BoundedContextDependenciesTest.php` uruchamiają
 - Given: ustawia stan aplikacji wyłącznie przez Commandy (CommandBus/handlery), nigdy przez endpointy.
 - When: wykonuje tylko endpointy (HTTP).
 - Then: weryfikuje stan przez Query (DBAL/read model). Endpointy w Then są dopuszczalne tylko do asercji kodów HTTP / error mapping.
+- Konteksty jednej suite współdzielą w scenariuszu jedną przeglądarkę (`app.behat.kernel_browser` w `config/services_test.yaml`), więc sesja z logowania OTP w `UserContext` obowiązuje w krokach innego kontekstu.
 - Dla współdzielonych “Given” używamy:
   - `FixtureContext` (wspólne kroki aranżacji stanu)
   - `FixtureRegistry` (mapowanie alias -> fixture/Id)

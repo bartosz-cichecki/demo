@@ -7,20 +7,18 @@ namespace App\Tests\Behat\User;
 use App\SharedKernel\Application\CommandBus\CommandBusInterface;
 use App\SharedKernel\Domain\Clock\MutableClock;
 use App\SharedKernel\Domain\ValueObject\Email;
-use App\SharedKernel\Domain\ValueObject\Id;
 use App\Tests\Behat\Support\Fixture\FixtureRegistry;
-use App\Tests\Behat\Support\Fixture\UserFixture;
-use App\User\Application\IntegrationEvent\UserRegisteredIntegrationEvent;
 use App\User\Application\OtpChallenge\Command\RequestOtp\RequestOtpCommand;
 use App\User\Application\OtpChallenge\Command\VerifyOtp\VerifyOtpCommand;
 use App\User\Application\OtpChallenge\Query\OtpChallengeQueryInterface;
-use App\User\Application\User\Command\UpsertUserByEmail\UpsertUserByEmailCommand;
 use App\User\Application\User\Query\UserQueryInterface;
 use Behat\Behat\Context\Context;
+use Behat\Gherkin\Node\TableNode;
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\Assert;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
+use Symfony\Component\BrowserKit\Cookie;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\HttpKernel\KernelInterface;
 
@@ -29,6 +27,8 @@ final class UserContext implements Context
     private const string OTP_COOLDOWN_ELAPSED_MODIFIER = '+61 seconds';
 
     private ?string $deliveredOtpCode = null;
+
+    private ?string $sessionIdBeforeClientSelection = null;
 
     public function __construct(
         private readonly KernelBrowser $client,
@@ -39,7 +39,6 @@ final class UserContext implements Context
         private readonly CommandBusInterface $commandBus,
         private readonly MutableClock $clock,
         private readonly KernelInterface $kernel,
-        private readonly string $userNotificationLogPath,
         private readonly string $otpMailboxPath,
     ) {
     }
@@ -154,6 +153,72 @@ final class UserContext implements Context
     }
 
     /**
+     * @When I request my active clients
+     */
+    public function iRequestMyActiveClients(): void
+    {
+        $this->client->request('GET', '/api/me/clients');
+    }
+
+    /**
+     * @When I select active client :clientAlias
+     */
+    public function iSelectActiveClient(string $clientAlias): void
+    {
+        $this->iSelectActiveClientWithId($this->registry->getClient($clientAlias)->id());
+    }
+
+    /**
+     * @When I select active client :clientAlias using an uppercase id
+     */
+    public function iSelectActiveClientUsingAnUppercaseId(string $clientAlias): void
+    {
+        $this->iSelectActiveClientWithId(strtoupper($this->registry->getClient($clientAlias)->id()));
+    }
+
+    /**
+     * @When I select active client with id :clientId
+     */
+    public function iSelectActiveClientWithId(string $clientId): void
+    {
+        $this->sessionIdBeforeClientSelection = $this->currentSessionId();
+
+        $this->client->request(
+            'POST',
+            '/api/session/active-client',
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json'],
+            json_encode(['clientId' => $clientId], \JSON_THROW_ON_ERROR),
+        );
+    }
+
+    /**
+     * @When I list members of client :clientAlias
+     */
+    public function iListMembersOfClient(string $clientAlias): void
+    {
+        $clientId = $this->registry->getClient($clientAlias)->id();
+
+        $this->client->request('GET', "/api/clients/{$clientId}/members");
+    }
+
+    /**
+     * @When I create a client named :name
+     */
+    public function iCreateAClientNamed(string $name): void
+    {
+        $this->client->request(
+            'POST',
+            '/api/clients',
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json'],
+            json_encode(['name' => $name], \JSON_THROW_ON_ERROR),
+        );
+    }
+
+    /**
      * @Given OTP was requested for :email from IP :ipAddress :seconds seconds ago
      */
     public function otpWasRequestedSecondsAgo(string $email, string $ipAddress, int $seconds): void
@@ -187,22 +252,6 @@ final class UserContext implements Context
             $result = $this->commandBus->dispatchWithResult(new VerifyOtpCommand($emailValue, '000000'));
             Assert::assertFalse($result->verified, 'OTP fixture code must be invalid.');
         }
-    }
-
-    /**
-     * @When I register user :alias with email :email
-     */
-    public function iRegisterUserWithEmail(string $alias, string $email): void
-    {
-        $this->commandBus->dispatch(new UpsertUserByEmailCommand($email));
-
-        $user = $this->userQuery->findByEmail(Email::fromString($email));
-        Assert::assertNotNull($user, \sprintf('User with email %s was not created', $email));
-
-        $this->registry->putUser($alias, new UserFixture(
-            new Id($user->id),
-            $email,
-        ));
     }
 
     /**
@@ -267,38 +316,6 @@ final class UserContext implements Context
     }
 
     /**
-     * @Then an integration event for registered user :email should be stored in the outbox
-     */
-    public function anIntegrationEventForRegisteredUserShouldBeStoredInTheOutbox(string $email): void
-    {
-        $count = $this->connection->fetchOne(
-            "SELECT COUNT(*) FROM shared.async_outbox WHERE event_name = :event_name AND payload ->> 'email' = :email",
-            [
-                'event_name' => UserRegisteredIntegrationEvent::class,
-                'email' => (string) Email::fromString($email),
-            ],
-        );
-
-        Assert::assertSame(1, $this->intValue($count));
-    }
-
-    /**
-     * @Then a user registration notification for :email should be stored
-     */
-    public function aUserRegistrationNotificationForShouldBeStored(string $email): void
-    {
-        Assert::assertGreaterThanOrEqual(1, $this->notificationCountForEmail($email));
-    }
-
-    /**
-     * @Then exactly one user registration notification for :email should be stored
-     */
-    public function exactlyOneUserRegistrationNotificationForShouldBeStored(string $email): void
-    {
-        Assert::assertSame(1, $this->notificationCountForEmail($email));
-    }
-
-    /**
      * @Then session should contain user id for :email
      */
     public function sessionShouldContainUserIdFor(string $email): void
@@ -317,6 +334,104 @@ final class UserContext implements Context
     {
         $session = $this->client->getRequest()->getSession();
         Assert::assertSame($this->registry->getClient($clientAlias)->id(), $session->get('active_client_id'));
+    }
+
+    /**
+     * @Then session should not contain active client id
+     */
+    public function sessionShouldNotContainActiveClientId(): void
+    {
+        $session = $this->client->getRequest()->getSession();
+        Assert::assertNull($session->get('active_client_id'));
+    }
+
+    /**
+     * @Then the session id should have changed on client selection
+     */
+    public function theSessionIdShouldHaveChangedOnClientSelection(): void
+    {
+        Assert::assertNotNull($this->sessionIdBeforeClientSelection);
+        Assert::assertNotSame($this->sessionIdBeforeClientSelection, $this->currentSessionId());
+    }
+
+    /**
+     * @Then the session id from before the client selection should no longer be logged in
+     */
+    public function theSessionIdFromBeforeTheClientSelectionShouldNoLongerBeLoggedIn(): void
+    {
+        Assert::assertNotNull($this->sessionIdBeforeClientSelection);
+        $sessionName = $this->client->getRequest()->getSession()->getName();
+        $currentSessionId = $this->currentSessionId();
+
+        $this->client->getCookieJar()->set(new Cookie($sessionName, $this->sessionIdBeforeClientSelection));
+        $this->client->request('GET', '/api/me/clients');
+        $this->theResponseStatusShouldBe(401);
+
+        $this->client->getCookieJar()->set(new Cookie($sessionName, $currentSessionId));
+    }
+
+    /**
+     * @Then the response status should be :statusCode
+     */
+    public function theResponseStatusShouldBe(int $statusCode): void
+    {
+        $response = $this->client->getResponse();
+        Assert::assertSame($statusCode, $response->getStatusCode(), \sprintf(
+            'Expected status %d, got %d. Response: %s',
+            $statusCode,
+            $response->getStatusCode(),
+            (string) $response->getContent(),
+        ));
+    }
+
+    /**
+     * @Then the response error should be :error
+     */
+    public function theResponseErrorShouldBe(string $error): void
+    {
+        Assert::assertSame(
+            ['error' => $error],
+            json_decode((string) $this->client->getResponse()->getContent(), true, 512, \JSON_THROW_ON_ERROR),
+        );
+    }
+
+    /**
+     * @Then my active clients response should contain exactly:
+     */
+    public function myActiveClientsResponseShouldContainExactly(TableNode $table): void
+    {
+        $this->theResponseStatusShouldBe(200);
+
+        $expected = array_map(
+            function (array $row): array {
+                $client = $this->registry->getClient($row['client']);
+
+                return [
+                    'clientId' => $client->id(),
+                    'clientName' => $client->name,
+                    'roles' => array_map('trim', explode(',', $row['roles'])),
+                ];
+            },
+            $table->getColumnsHash(),
+        );
+
+        /** @var list<array{clientId: string, clientName: string, roles: array<string>}> $actual */
+        $actual = json_decode((string) $this->client->getResponse()->getContent(), true, 512, \JSON_THROW_ON_ERROR);
+
+        $byClientId = static fn (array $left, array $right): int => $left['clientId'] <=> $right['clientId'];
+        usort($expected, $byClientId);
+        usort($actual, $byClientId);
+
+        Assert::assertSame($expected, $actual);
+    }
+
+    /**
+     * @Then my active clients response should be empty
+     */
+    public function myActiveClientsResponseShouldBeEmpty(): void
+    {
+        $this->theResponseStatusShouldBe(200);
+        Assert::assertSame('[]', $this->client->getResponse()->getContent());
     }
 
     /**
@@ -360,23 +475,6 @@ final class UserContext implements Context
         Assert::assertNull($session->get('user_id'));
     }
 
-    private function notificationCountForEmail(string $email): int
-    {
-        if (!is_file($this->userNotificationLogPath)) {
-            return 0;
-        }
-
-        $lines = file($this->userNotificationLogPath, \FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES);
-        if (false === $lines) {
-            throw new \RuntimeException(\sprintf('Notification file "%s" could not be read.', $this->userNotificationLogPath));
-        }
-
-        return \count(array_filter(
-            $lines,
-            static fn (string $line): bool => str_contains($line, ' email=' . (string) Email::fromString($email) . ' '),
-        ));
-    }
-
     /** @return list<array{email: string, code: string}> */
     private function otpMessages(): array
     {
@@ -398,6 +496,11 @@ final class UserContext implements Context
         }
 
         return $messages;
+    }
+
+    private function currentSessionId(): string
+    {
+        return $this->client->getRequest()->getSession()->getId();
     }
 
     private function intValue(mixed $value): int

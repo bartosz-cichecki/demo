@@ -24,6 +24,13 @@ default:
             contexts:
                 - App\Tests\Behat\Support\Fixture\FixtureContext
                 - App\Tests\Behat\ClientMember\ClientMemberContext
+        client_invitation:
+            paths:
+                - "%paths.base%/tests/Behat/features/client_invitation"
+            contexts:
+                - App\Tests\Behat\Support\Fixture\FixtureContext
+                - App\Tests\Behat\User\UserContext
+                - App\Tests\Behat\ClientInvitation\ClientInvitationContext
 
     extensions:
         FriendsOfBehat\SymfonyExtension:

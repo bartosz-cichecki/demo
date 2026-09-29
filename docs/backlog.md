@@ -26,8 +26,8 @@ This backlog is not a list of every tool that could be added to the repository. 
 | 3 | OTP verification attempt limit in Domain | DONE | 2026-09-26 | 2026-09-26 | Keep the rule in the aggregate and commit failed attempts |
 | 4 | Client membership uniqueness in Domain | DONE | 2026-09-28 | 2026-09-28 | Centralize validation shared by both creation handlers |
 | 5 | Explicit client selection and membership invitations | TODO | 2026-09-28 | — | Real multi-tenant flow with consent and cross-BC async |
-| 5.1 | Explicit active client selection | TODO | 2026-09-28 | — | Replace the implicit UUID-ordered client choice at login |
-| 5.2 | Client membership invitations | TODO | 2026-09-28 | — | Membership requires user consent; async notification Client → User |
+| 5.1 | Explicit active client selection | DONE | 2026-09-28 | 2026-09-28 | Replace the implicit UUID-ordered client choice at login |
+| 5.2 | Client membership invitations | DONE | 2026-09-29 | 2026-09-29 | Membership requires user consent; async notification Client → User |
 | 5.3 | Client onboarding invites the first admin | TODO | 2026-09-28 | — | Close the gap where only fixtures create client admins |
 | 6 | Mermaid architecture flow | TODO | 2026-09-28 | — | Show the main architecture flow in 30 seconds |
 | 7 | README first screen polish | TODO | 2026-04-30 | — | Explain quickly what the demo is and what it proves |
@@ -156,7 +156,7 @@ Previously, both `ProvisionClientMemberCommandHandler` and `CreateClientMemberCo
 
 Reuse the existing factory, Outside, query and exception. No separate policy or cross-BC dependency is needed for the membership read. Apply architecture §5.2, §6–6.1 and §11.1; retain the existing User provisioning boundary from §4.2.
 
-Implementation evidence: [provision handler](../app/src/Client/Application/ClientMember/Command/ProvisionClientMember/ProvisionClientMemberCommandHandler.php), [create handler](../app/src/Client/Application/ClientMember/Command/CreateClientMember/CreateClientMemberCommandHandler.php), [factory](../app/src/Client/Domain/ClientMember/Factory/ClientMemberFactory.php), [membership query](../app/src/Client/Infrastructure/ClientMember/ClientMemberQuery.php), and [unique-index migration](../app/src/Client/Infrastructure/Resource/Migrations/Version20260206120000.php).
+Implementation evidence: provision handler (removed in 5.2), [create handler](../app/src/Client/Application/ClientMember/Command/CreateClientMember/CreateClientMemberCommandHandler.php), [factory](../app/src/Client/Domain/ClientMember/Factory/ClientMemberFactory.php), [membership query](../app/src/Client/Infrastructure/ClientMember/ClientMemberQuery.php), and [unique-index migration](../app/src/Client/Infrastructure/Resource/Migrations/Version20260206120000.php).
 
 Verification: [factory tests](../app/tests/Client/Domain/ClientMember/ClientMemberFactoryTest.php) prove rejection before construction and event recording. [Integration tests](../app/tests/Client/Infrastructure/ClientMember/ClientMemberCreationIntegrationTest.php) cover both creation flows with one membership lookup, including active and suspended duplicates. [Behat scenarios](../app/tests/Behat/features/client_member/client_member_management.feature) preserve HTTP 409 and its error payload without changing the existing membership. The database unique index is unchanged. All five quality gates passed sequentially (186 PHPUnit tests, 31 Behat scenarios).
 
@@ -196,6 +196,10 @@ Done when:
 - Existing scenarios that assert `active_client_id` right after verify are rewritten to verify + select.
 - `docs/architecture.md` §11 and §11.1 describe the new session states and routes.
 
+Completion note (2026-09-28): `ActiveClientIdOnLoginSubscriber` and `ActiveClientIdResolverService` were removed. OTP verify migrates the session, sets `user_id` and clears any earlier `active_client_id`; it never selects a client and accepts users without memberships. The existing User ACL `ActiveMembershipsQuery` now also maps the client name (through `ClientQueryInterface`) and roles for `GET /api/me/clients`; `POST /api/session/active-client` reuses `MembershipForClientQueryInterface`, returns 204, stores the lowercase UUID and migrates the session, and answers 403 `Access denied` without changing the session for a foreign, suspended or unknown client (400 for a non-UUID). `TenantGuardSubscriber` checks the user before the active client, lets `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` pass, and returns `403 {"error": "active_client_required"}` from the `MISSING_CLIENT_ID` branch. Fixture sessions (`I am logged in as … in client …`) still arrange `active_client_id` directly; they model an earlier explicit selection, not login. All five quality gates passed sequentially (183 PHPUnit tests, 44 Behat scenarios).
+
+Implementation evidence: [session endpoints](../app/src/User/Ui/Http/Api/ActiveClientController.php), [OTP controller](../app/src/User/Ui/Http/Api/OtpAuthController.php), [tenant guard](../app/src/User/Ui/Http/Security/TenantGuardSubscriber.php), and [membership ACL](../app/src/User/Infrastructure/Tenant/ActiveMembershipsQuery.php). Verification: [selection scenarios](../app/tests/Behat/features/user/active_client_selection.feature) and the rewritten [OTP scenarios](../app/tests/Behat/features/user/user_registration.feature).
+
 ### 5.2 Client membership invitations
 
 Scope:
@@ -222,6 +226,10 @@ Done when:
 - Deptrac and `BoundedContextDependenciesTest` allow the new cross-BC subscriber and still reject other foreign imports; probes that reference `UserRegisteredIntegrationEvent` point to the invitation event.
 - No reference to the removed classes remains in `app/`, `docs/` or the README.
 - `docs/architecture.md` §4.2 no longer uses `UserProvisioningService` as its example; README `Key flows` reflects the new flow.
+
+Completion note (2026-09-29): `ClientInvitation` (Client) has status and `#[ORM\Version]`; `ClientInvitationFactory::createByClientAdmin()` refuses role `admin`, a second pending invitation (backed by the partial unique index `UNIQ_CLIENT_INVITATION_PENDING_CLIENT_EMAIL`) and a person with an active or suspended membership, using facts from `ClientInvitationOutside`. Client reads users through its own ACL port `UserAccountQueryInterface` (adapter over `UserQueryInterface`). `accept()` creates the membership through `ClientMemberFactory` in the same transaction; `revokeByClientAdmin()` refuses role `admin`. A request addressed to someone else's invitation answers 404, refused transitions and concurrent changes 409, and the active client is set only after commit. `ClientInvitationSaga` publishes `ClientInvitationCreatedIntegrationEvent`; `SendClientInvitationNotificationSubscriber` (User) writes one JSON line through `UserNotificationSenderServiceInterface`. Provisioning, `UpsertUserByEmailCommand`, the registration notification flow and the unused `requireActiveClientId()`/`SessionContext::activeClientId()` were removed; Behat fixtures create users with `LogInUserByEmailCommand`. Behat contexts of one suite now share one browser per scenario, so an OTP login in `UserContext` is visible to `ClientInvitationContext`. All five quality gates passed sequentially.
+
+Implementation evidence: [aggregate](../app/src/Client/Domain/ClientInvitation/ClientInvitation.php), [factory](../app/src/Client/Domain/ClientInvitation/Factory/ClientInvitationFactory.php), [Outside](../app/src/Client/Infrastructure/ClientInvitation/ClientInvitationOutside.php), [controller](../app/src/Client/Ui/Http/Api/ClientInvitationController.php), [saga](../app/src/Client/Application/ClientInvitation/Saga/ClientInvitationSaga.php), [subscriber](../app/src/User/Application/IntegrationEventSubscriber/SendClientInvitationNotificationSubscriber.php), and [migration](../app/src/Client/Infrastructure/Resource/Migrations/Version20260929120000.php). Verification: [domain tests](../app/tests/Client/Domain/ClientInvitation/), [concurrency integration tests](../app/tests/Client/Infrastructure/ClientInvitation/ClientInvitationConcurrencyIntegrationTest.php), [notification integration test](../app/tests/Client/Application/ClientInvitation/ClientInvitationNotificationIntegrationTest.php), and [Behat scenarios](../app/tests/Behat/features/client_invitation/client_invitation.feature).
 
 ### 5.3 Client onboarding invites the first admin
 

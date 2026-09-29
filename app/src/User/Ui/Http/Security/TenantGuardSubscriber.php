@@ -22,11 +22,23 @@ final readonly class TenantGuardSubscriber
      * @var array<string>
      */
     private const array ADMIN_REQUIRED_ROUTE_NAMES = [
+        'api_client_invitations_create',
+        'api_client_invitations_revoke',
         'api_client_members_list',
-        'api_client_members_provision',
         'api_client_members_replace_roles',
         'api_client_members_suspend',
         'api_client_members_unsuspend',
+    ];
+
+    /**
+     * @var array<string>
+     */
+    private const array ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES = [
+        'api_invitations_accept',
+        'api_invitations_reject',
+        'api_me_clients_list',
+        'api_me_invitations_list',
+        'api_session_active_client_select',
     ];
 
     /**
@@ -85,22 +97,8 @@ final readonly class TenantGuardSubscriber
             return;
         }
 
-        $sessionClientId = $session->get('active_client_id');
-        if (!\is_string($sessionClientId) || '' === $sessionClientId) {
-            $event->setResponse($this->deny($request, Response::HTTP_FORBIDDEN, 'MISSING_CLIENT_ID'));
-
-            return;
-        }
-
-        if (!$this->passesClientScopeCheck($request, $sessionClientId)) {
-            $event->setResponse($this->deny($request, Response::HTTP_FORBIDDEN, 'CLIENT_SCOPE_MISMATCH'));
-
-            return;
-        }
-
         try {
             $userId = new Id($sessionUserId);
-            $clientId = new Id($sessionClientId);
         } catch (\InvalidArgumentException) {
             $event->setResponse($this->deny($request, Response::HTTP_FORBIDDEN, 'INVALID_ID_FORMAT'));
 
@@ -116,6 +114,31 @@ final readonly class TenantGuardSubscriber
 
         if ('blocked' === $user->status) {
             $event->setResponse($this->deny($request, Response::HTTP_FORBIDDEN, 'USER_BLOCKED'));
+
+            return;
+        }
+
+        if ($this->isActiveClientOptionalRoute($request)) {
+            return;
+        }
+
+        $sessionClientId = $session->get('active_client_id');
+        if (!\is_string($sessionClientId) || '' === $sessionClientId) {
+            $event->setResponse($this->deny($request, Response::HTTP_FORBIDDEN, 'MISSING_CLIENT_ID', 'active_client_required'));
+
+            return;
+        }
+
+        if (!$this->passesClientScopeCheck($request, $sessionClientId)) {
+            $event->setResponse($this->deny($request, Response::HTTP_FORBIDDEN, 'CLIENT_SCOPE_MISMATCH'));
+
+            return;
+        }
+
+        try {
+            $clientId = new Id($sessionClientId);
+        } catch (\InvalidArgumentException) {
+            $event->setResponse($this->deny($request, Response::HTTP_FORBIDDEN, 'INVALID_ID_FORMAT'));
 
             return;
         }
@@ -165,6 +188,13 @@ final readonly class TenantGuardSubscriber
         return \in_array($routeName, self::ALLOWLISTED_ROUTE_NAMES, true);
     }
 
+    private function isActiveClientOptionalRoute(Request $request): bool
+    {
+        $routeName = $request->attributes->get('_route');
+
+        return \is_string($routeName) && \in_array($routeName, self::ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES, true);
+    }
+
     private function passesClientScopeCheck(Request $request, string $sessionClientId): bool
     {
         $routeClientId = $request->attributes->get('clientId');
@@ -175,13 +205,13 @@ final readonly class TenantGuardSubscriber
         return $routeClientId === $sessionClientId;
     }
 
-    private function deny(Request $request, int $status, string $reasonCode): JsonResponse
+    private function deny(Request $request, int $status, string $reasonCode, string $error = 'Access denied'): JsonResponse
     {
         if ($this->shouldLogDeny($request, $reasonCode)) {
             $this->abuseLogger->warning($request, $reasonCode);
         }
 
-        return new JsonResponse(['error' => 'Access denied'], $status);
+        return new JsonResponse(['error' => $error], $status);
     }
 
     private function shouldLogDeny(Request $request, string $reasonCode): bool

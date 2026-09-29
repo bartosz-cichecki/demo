@@ -3,49 +3,7 @@ Feature: Client member management
     Background:
         Given there is a client "acme"
 
-    # === Provisioning (admin) ===
-
-    Scenario: admin provisions a new member by email
-        Given there is a user "adm" with email "adm@example.com"
-        And there is a membership of "adm" in "acme" with roles "admin"
-        And I am logged in as "adm" in client "acme"
-        When I provision a member with email "new@example.com"
-        Then the membership should be created successfully
-        And client "acme" should have 2 members
-        And the provisioned member "new@example.com" in client "acme" should have roles "user"
-        And the provisioned member "new@example.com" in client "acme" should have status "active"
-
-    Scenario: user cannot provision
-        Given there is a user "plain" with email "plain@example.com"
-        And there is a membership of "plain" in "acme" with roles "user"
-        And I am logged in as "plain" in client "acme"
-        When I provision a member with email "new@example.com"
-        Then response status should be 403
-
-    Scenario: Duplicate provisioning is rejected
-        Given there is a user "adm" with email "adm@example.com"
-        And there is a membership of "adm" in "acme" with roles "admin"
-        And there is a user "existing" with email "existing@example.com"
-        And there is a membership of "existing" in "acme" with roles "user"
-        And I am logged in as "adm" in client "acme"
-        When I provision a member with email "existing@example.com"
-        Then I should get a conflict error
-        And client "acme" should have 2 members
-        And the member "existing" in client "acme" should have roles "user"
-        And the member "existing" in client "acme" should have status "active"
-
-    Scenario: Suspended membership also prevents duplicate provisioning
-        Given there is a user "adm" with email "adm@example.com"
-        And there is a membership of "adm" in "acme" with roles "admin"
-        And there is a user "existing" with email "existing@example.com"
-        And there is a membership of "existing" in "acme" with roles "user"
-        And membership of "existing" in "acme" is suspended
-        And I am logged in as "adm" in client "acme"
-        When I provision a member with email "existing@example.com"
-        Then I should get a conflict error
-        And client "acme" should have 2 members
-        And the member "existing" in client "acme" should have roles "user"
-        And the member "existing" in client "acme" should have status "suspended"
+    # Members join through invitations: client_invitation/client_invitation.feature
 
     # === Replace roles (admin) ===
 
@@ -108,13 +66,7 @@ Feature: Client member management
         And I am logged in as "adm" without active client
         When I list members in "acme"
         Then response status should be 403
-
-    Scenario: Tenant guard denies provisioning when active client is missing
-        Given there is a user "adm" with email "adm@example.com"
-        And there is a membership of "adm" in "acme" with roles "admin"
-        And I am logged in as "adm" without active client
-        When I provision a member with email "new@example.com"
-        Then response status should be 403
+        And response error should be "active_client_required"
 
     Scenario: Tenant guard denies access for suspended membership
         Given there is a user "adm" with email "adm@example.com"
