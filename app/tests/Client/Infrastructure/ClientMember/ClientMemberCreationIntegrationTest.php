@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace App\Tests\Client\Infrastructure\ClientMember;
 
 use App\Client\Application\Client\Command\CreateClient\CreateClientCommand;
+use App\Client\Application\ClientInvitation\Command\AcceptClientInvitation\AcceptClientInvitationCommand;
+use App\Client\Application\ClientInvitation\Command\AcceptClientInvitation\AcceptClientInvitationCommandHandler;
+use App\Client\Application\ClientInvitation\Command\CreateClientInvitation\CreateClientInvitationCommand;
 use App\Client\Application\ClientMember\Command\CreateClientMember\CreateClientMemberCommand;
 use App\Client\Application\ClientMember\Command\CreateClientMember\CreateClientMemberCommandHandler;
-use App\Client\Application\ClientMember\Command\ProvisionClientMember\ProvisionClientMemberCommand;
-use App\Client\Application\ClientMember\Command\ProvisionClientMember\ProvisionClientMemberCommandHandler;
 use App\Client\Application\ClientMember\Command\SuspendClientMember\SuspendClientMemberCommand;
-use App\Client\Application\ClientMember\Port\UserProvisioningServiceInterface;
 use App\Client\Application\ClientMember\Query\ClientMemberQueryInterface;
+use App\Client\Domain\ClientInvitation\Repository\ClientInvitationRepositoryInterface;
 use App\Client\Domain\ClientMember\ClientMember;
 use App\Client\Domain\ClientMember\Event\ClientMemberCreated;
 use App\Client\Domain\ClientMember\Factory\ClientMemberFactory;
@@ -22,7 +23,10 @@ use App\SharedKernel\Application\CommandBus\CommandBusInterface;
 use App\SharedKernel\Domain\Clock\MutableClock;
 use App\SharedKernel\Domain\Event\InMemoryDomainEventsCollector;
 use App\SharedKernel\Domain\ValueObject\DateTime;
+use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
+use App\User\Application\User\Command\LogInUserByEmail\LogInUserByEmailCommand;
+use App\User\Application\User\Query\UserQueryInterface;
 use Doctrine\ORM\EntityManagerInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
@@ -30,25 +34,33 @@ use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 final class ClientMemberCreationIntegrationTest extends KernelTestCase
 {
     #[DataProvider('creationAttempts')]
-    public function testBothFlowsUseOneLookupAndRejectExistingMemberships(bool $provision, ?string $status): void
+    public function testBothFlowsUseOneLookupAndRejectExistingMemberships(bool $acceptInvitation, ?string $status): void
     {
         self::bootKernel();
         $container = self::getContainer();
         $commandBus = $container->get(CommandBusInterface::class);
         $query = $container->get(ClientMemberQueryInterface::class);
         $repository = $container->get(ClientMemberRepositoryInterface::class);
-        $userProvisioning = $container->get(UserProvisioningServiceInterface::class);
+        $invitationRepository = $container->get(ClientInvitationRepositoryInterface::class);
+        $userQuery = $container->get(UserQueryInterface::class);
         $em = $container->get(EntityManagerInterface::class);
         self::assertInstanceOf(CommandBusInterface::class, $commandBus);
         self::assertInstanceOf(ClientMemberQueryInterface::class, $query);
         self::assertInstanceOf(ClientMemberRepositoryInterface::class, $repository);
-        self::assertInstanceOf(UserProvisioningServiceInterface::class, $userProvisioning);
+        self::assertInstanceOf(ClientInvitationRepositoryInterface::class, $invitationRepository);
+        self::assertInstanceOf(UserQueryInterface::class, $userQuery);
         self::assertInstanceOf(EntityManagerInterface::class, $em);
 
         $clientId = Id::new();
-        $email = (string) Id::new() . '@example.com';
+        $invitationId = Id::new();
+        $email = Email::fromString((string) Id::new() . '@example.com');
         $commandBus->dispatch(new CreateClientCommand($clientId, 'Membership uniqueness', null));
-        $userId = $userProvisioning->ensureUserExists($email);
+        // The invitation precedes the membership; otherwise the invitation itself would be refused.
+        $commandBus->dispatch(new CreateClientInvitationCommand($invitationId, $clientId, $email, 'user'));
+        $commandBus->dispatch(new LogInUserByEmailCommand($email));
+        $user = $userQuery->findByEmail($email);
+        self::assertNotNull($user);
+        $userId = new Id($user->id);
         if (null !== $status) {
             $commandBus->dispatch(new CreateClientMemberCommand($clientId, $userId, ['admin']));
             if ('suspended' === $status) {
@@ -73,9 +85,9 @@ final class ClientMemberCreationIntegrationTest extends KernelTestCase
         ));
 
         try {
-            if ($provision) {
-                $handler = new ProvisionClientMemberCommandHandler($userProvisioning, $factory, $observedRepository);
-                $handler(new ProvisionClientMemberCommand($clientId, $email));
+            if ($acceptInvitation) {
+                $handler = new AcceptClientInvitationCommandHandler($invitationRepository, $factory, $observedRepository);
+                $handler(new AcceptClientInvitationCommand($invitationId, $userId));
             } else {
                 $handler = new CreateClientMemberCommandHandler($factory, $observedRepository);
                 $handler(new CreateClientMemberCommand($clientId, $userId, ['user']));
@@ -107,8 +119,8 @@ final class ClientMemberCreationIntegrationTest extends KernelTestCase
         yield 'create absent' => [false, null];
         yield 'create active duplicate' => [false, 'active'];
         yield 'create suspended duplicate' => [false, 'suspended'];
-        yield 'provision absent' => [true, null];
-        yield 'provision active duplicate' => [true, 'active'];
-        yield 'provision suspended duplicate' => [true, 'suspended'];
+        yield 'accept invitation absent' => [true, null];
+        yield 'accept invitation active duplicate' => [true, 'active'];
+        yield 'accept invitation suspended duplicate' => [true, 'suspended'];
     }
 }

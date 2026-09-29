@@ -7,14 +7,10 @@ namespace App\Tests\Behat\User;
 use App\SharedKernel\Application\CommandBus\CommandBusInterface;
 use App\SharedKernel\Domain\Clock\MutableClock;
 use App\SharedKernel\Domain\ValueObject\Email;
-use App\SharedKernel\Domain\ValueObject\Id;
 use App\Tests\Behat\Support\Fixture\FixtureRegistry;
-use App\Tests\Behat\Support\Fixture\UserFixture;
-use App\User\Application\IntegrationEvent\UserRegisteredIntegrationEvent;
 use App\User\Application\OtpChallenge\Command\RequestOtp\RequestOtpCommand;
 use App\User\Application\OtpChallenge\Command\VerifyOtp\VerifyOtpCommand;
 use App\User\Application\OtpChallenge\Query\OtpChallengeQueryInterface;
-use App\User\Application\User\Command\UpsertUserByEmail\UpsertUserByEmailCommand;
 use App\User\Application\User\Query\UserQueryInterface;
 use Behat\Behat\Context\Context;
 use Behat\Gherkin\Node\TableNode;
@@ -43,7 +39,6 @@ final class UserContext implements Context
         private readonly CommandBusInterface $commandBus,
         private readonly MutableClock $clock,
         private readonly KernelInterface $kernel,
-        private readonly string $userNotificationLogPath,
         private readonly string $otpMailboxPath,
     ) {
     }
@@ -260,22 +255,6 @@ final class UserContext implements Context
     }
 
     /**
-     * @When I register user :alias with email :email
-     */
-    public function iRegisterUserWithEmail(string $alias, string $email): void
-    {
-        $this->commandBus->dispatch(new UpsertUserByEmailCommand($email));
-
-        $user = $this->userQuery->findByEmail(Email::fromString($email));
-        Assert::assertNotNull($user, \sprintf('User with email %s was not created', $email));
-
-        $this->registry->putUser($alias, new UserFixture(
-            new Id($user->id),
-            $email,
-        ));
-    }
-
-    /**
      * @When the integration events are processed
      */
     public function theIntegrationEventsAreProcessed(): void
@@ -334,38 +313,6 @@ final class UserContext implements Context
 
         Assert::assertNotNull($dto, \sprintf('User with email %s not found', $email));
         Assert::assertNotNull($dto->lastLoginAt, 'Expected lastLoginAt to be set');
-    }
-
-    /**
-     * @Then an integration event for registered user :email should be stored in the outbox
-     */
-    public function anIntegrationEventForRegisteredUserShouldBeStoredInTheOutbox(string $email): void
-    {
-        $count = $this->connection->fetchOne(
-            "SELECT COUNT(*) FROM shared.async_outbox WHERE event_name = :event_name AND payload ->> 'email' = :email",
-            [
-                'event_name' => UserRegisteredIntegrationEvent::class,
-                'email' => (string) Email::fromString($email),
-            ],
-        );
-
-        Assert::assertSame(1, $this->intValue($count));
-    }
-
-    /**
-     * @Then a user registration notification for :email should be stored
-     */
-    public function aUserRegistrationNotificationForShouldBeStored(string $email): void
-    {
-        Assert::assertGreaterThanOrEqual(1, $this->notificationCountForEmail($email));
-    }
-
-    /**
-     * @Then exactly one user registration notification for :email should be stored
-     */
-    public function exactlyOneUserRegistrationNotificationForShouldBeStored(string $email): void
-    {
-        Assert::assertSame(1, $this->notificationCountForEmail($email));
     }
 
     /**
@@ -526,23 +473,6 @@ final class UserContext implements Context
     {
         $session = $this->client->getRequest()->getSession();
         Assert::assertNull($session->get('user_id'));
-    }
-
-    private function notificationCountForEmail(string $email): int
-    {
-        if (!is_file($this->userNotificationLogPath)) {
-            return 0;
-        }
-
-        $lines = file($this->userNotificationLogPath, \FILE_IGNORE_NEW_LINES | \FILE_SKIP_EMPTY_LINES);
-        if (false === $lines) {
-            throw new \RuntimeException(\sprintf('Notification file "%s" could not be read.', $this->userNotificationLogPath));
-        }
-
-        return \count(array_filter(
-            $lines,
-            static fn (string $line): bool => str_contains($line, ' email=' . (string) Email::fromString($email) . ' '),
-        ));
     }
 
     /** @return list<array{email: string, code: string}> */

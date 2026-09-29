@@ -23,15 +23,6 @@ final class SessionContextTest extends TestCase
         $this->assertSame(self::VALID_UUID, (string) $result);
     }
 
-    public function testActiveClientIdReturnsIdFromSession(): void
-    {
-        $context = $this->createContextWithSession(['active_client_id' => self::VALID_UUID]);
-
-        $result = $context->activeClientId();
-
-        $this->assertSame(self::VALID_UUID, (string) $result);
-    }
-
     public function testThrowsWhenNoCurrentRequest(): void
     {
         $requestStack = new RequestStack();

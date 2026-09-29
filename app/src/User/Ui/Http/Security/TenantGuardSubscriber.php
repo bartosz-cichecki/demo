@@ -22,8 +22,9 @@ final readonly class TenantGuardSubscriber
      * @var array<string>
      */
     private const array ADMIN_REQUIRED_ROUTE_NAMES = [
+        'api_client_invitations_create',
+        'api_client_invitations_revoke',
         'api_client_members_list',
-        'api_client_members_provision',
         'api_client_members_replace_roles',
         'api_client_members_suspend',
         'api_client_members_unsuspend',
@@ -33,7 +34,10 @@ final readonly class TenantGuardSubscriber
      * @var array<string>
      */
     private const array ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES = [
+        'api_invitations_accept',
+        'api_invitations_reject',
         'api_me_clients_list',
+        'api_me_invitations_list',
         'api_session_active_client_select',
     ];
 
