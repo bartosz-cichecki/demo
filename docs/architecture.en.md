@@ -93,7 +93,7 @@ Cross-BC contract (A and B are different business contexts):
 - Async: `Application/IntegrationEventSubscriber A -> IntegrationEvent B` is allowed. This is the only cross-BC exception for Application; subscribers retain their own permitted Application dependencies, including the prohibition on Outside access.
 - A's `Domain`, ordinary `Application` and `Ui` do not import any class or interface from B, including `IntegrationEvent`. For sync communication, the consumer defines its own port; only the Infrastructure adapter knows the foreign contract.
 - `Infrastructure A -> repository (including interfaces), handler, implementation, service or IntegrationEvent B` is forbidden. Subscribers receive no access to foreign sync contracts or other foreign BC classes.
-- A foreign service interface is not automatically a public contract. It requires an existing, specifically justified exception: a named consumer and interface, a rationale and a test. There are currently no such exceptions; `UserProvisioningServiceInterface` is Client's own port, and `ValueHasherServiceInterface` is used only within User.
+- A foreign service interface is not automatically a public contract. It requires an existing, specifically justified exception: a named consumer and interface, a rationale and a test. There are currently no such exceptions; `ValueHasherServiceInterface` and `UserNotificationSenderServiceInterface` are used only within User.
 
 Public sync contracts use the namespace `App\{BC}\Application\{module}\…\Query\*QueryInterface`, `…\Command\**\*Command` or `…\Query\Dto\*Dto`. There is at least one module/aggregate segment below Application; QueryInterface lives directly in Query, and DTO directly in Query/Dto. `**` below Command means zero or more segments: a Command can live directly in Command or in a use-case subnamespace. The Command directory does not expose handlers, and an `Interface` suffix does not expose repositories or services.
 
@@ -107,12 +107,14 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 - Context A defines its own DTO and maps data from context B's DTO. It does not re-export foreign DTOs above the Infrastructure layer (Anti-Corruption Layer).
 - Benefit of the modular monolith: the dependency is compile-time, without serialization or network calls, while context boundaries are explicit in namespaces and adapters.
 - Example: `User/Infrastructure/Tenant/ActiveMembershipsQuery` implements its own `ActiveMembershipsQueryInterface`, reads through Client's `ClientMemberQueryInterface` and `ClientQueryInterface` and maps `ClientMemberDto` together with the name from `ClientDto` to its own `ActiveMembershipDto`. Deptrac checks dependency boundaries; SQL table ownership and the semantic correctness of mapping still require review.
+- Example in the other direction: `Client/Infrastructure/UserAccount/UserAccountQuery` implements Client's own `UserAccountQueryInterface`, reads through User's `UserQueryInterface` and returns `Email`/`Id` values instead of `UserDto`. It is used by `ClientInvitationOutside` (the acting user's email and whether the person with a given email has a membership) and by the logged-in user's invitation list.
 
 ### 4.2 A cross-BC write use case
 - If a use case in context A must initiate a write owned by context B, context A's Application layer depends on its own port.
 - The port implementation lives in context A's Infrastructure layer. The adapter may invoke context B's public Command through `CommandBus` and read the result through context B's public `QueryInterface`.
 - In sync communication, the consuming context's Domain, Application and Ui do not import any classes from another BC. Details of the foreign contract remain in the Infrastructure adapter. The separate async exception applies only to integration event subscribers (§8.1).
-- Example: Client owns membership, User owns users. Client's own `UserProvisioningServiceInterface` port is implemented by `Client/Infrastructure/ClientMember/UserProvisioningService`, which dispatches User's `UpsertUserByEmailCommand` and reads through `UserQueryInterface`. The adapter does not invoke a foreign handler or repository.
+- The adapter does not invoke a foreign handler or repository.
+- Currently no use case writes synchronously in a foreign BC. Client owns memberships and invitations, User owns users. An invitation does not create an account: accounts are created only by OTP login (`LogInUserByEmailCommand`), and User sends the invitation notification asynchronously (§8.1).
 
 ## 5. CQRS-lite (team contract)
 
@@ -208,6 +210,7 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 - `DbalOutboxPublisher` assigns the technical `event_id`, stores `event_name` as the event class FQCN, JSON payload, and `created_at` from `ClockInterface` as a UTC storage string.
 - If a sync saga translates its own `DomainEvent` into its own `IntegrationEvent`, it does this in Application and uses `IntegrationEventPublisherInterface`.
 - If the goal of a sync saga reaction is async publish, the saga does not run `CommandBus`; it publishes the `IntegrationEvent` through the publisher.
+- Example: `Client/Application/ClientInvitation/Saga/ClientInvitationSaga` translates `ClientInvitationCreated` into `ClientInvitationCreatedIntegrationEvent` (invitation id, client and its name, email, role). The outbox write happens in the transaction that creates the invitation. The consumer is `User/Application/IntegrationEventSubscriber/SendClientInvitationNotificationSubscriber`, which sends one notification through User's own `UserNotificationSenderServiceInterface` port. The local `FileUserNotificationSenderService` implementation appends a JSON line to `var/notifications/user_notifications.jsonl` (`user_notifications.test.jsonl` in tests) and skips an identical line, which prevents a duplicate after the worker is interrupted between delivery and marking `processed` (§9.2).
 - DI conventions:
   - sync sagas: `src/*/Application/**/Saga/*Saga.php` with the `app.saga` tag, called by the sync `EventBus`
   - async subscribers: `src/*/Application/IntegrationEventSubscriber/*Subscriber.php` with the `app.integration_event_subscriber` tag, called by the outbox worker
@@ -258,6 +261,13 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 - Migration namespaces are registered centrally in the Doctrine Migrations configuration.
 - Diff generation is targeted at a context namespace, but running `doctrine:migrations:migrate` covers the shared set of all registered pending migrations. The target names `migrations-migrate-client` and `migrations-migrate-user` do not mean that execution is isolated to a single BC.
 
+### 9.4 Optimistic locking
+- An aggregate whose transitions can compete has a version column (`#[ORM\Version]`). Currently this applies to `ClientInvitation` (`client.client_invitations.version`).
+- Doctrine updates the row with the condition `version = <loaded version>`. If another transaction committed a change between the read and the flush, the flush throws `OptimisticLockException` and `CommandBus` rolls back the whole transaction, including the membership created by accept, the EventLog and the outbox.
+- Concurrent accepts of the same invitation fail earlier, on the unique `(client_id, user_id)` membership index (`UniqueConstraintViolationException`), with the same effect.
+- The controller maps both conflicts to `409 {"error": "Invitation was changed concurrently"}`.
+- `ClientInvitationConcurrencyIntegrationTest` reproduces a real race: the second writer runs in a separately booted kernel with its own EntityManager and DBAL connection and commits its change in the first writer's `preFlush`. A change on the same connection would join the `CommandBus` transaction and be rolled back with it.
+
 ## 10. DI and configuration
 - `app/config/services.yaml` is the root service configuration: it imports convention-based autoloading and each module's Infrastructure configuration.
 - `app/config/services.autoload.yaml` uses patterns to register controllers, factories, repositories, queries, Outside implementations, Command handlers, console commands, sagas, integration event subscribers, `*Service` classes, and other Infrastructure services.
@@ -276,8 +286,8 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 
 Session states and active client selection:
 - Anonymous (no `user_id`): only routes on the `TenantGuardSubscriber` allowlist are available (`api_auth_otp_request`, `api_auth_otp_verify`, `/api/health`). Other guarded routes return 401, `platform_*` routes return 403.
-- Logged in without an active client: a successful `POST /api/auth/otp/verify` migrates the session id, sets `user_id` and `is_platform_admin`, and removes any `active_client_id` left from an earlier login in the same session. Login never selects a client and does not require a membership. Routes in `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` (`api_me_clients_list`, `api_session_active_client_select`) and, for a platform admin, `platform_*` routes are available. A tenant route returns `403 {"error": "active_client_required"}`.
-- Logged in with an active client: `POST /api/session/active-client` sets `active_client_id` only for an active membership of the user and migrates the session id. A later call switches the client; a refused selection leaves the session state unchanged. Tenant routes go through the remaining guard checks (§11.1).
+- Logged in without an active client: a successful `POST /api/auth/otp/verify` migrates the session id, sets `user_id` and `is_platform_admin`, and removes any `active_client_id` left from an earlier login in the same session. Login never selects a client and does not require a membership. Routes in `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` (`api_me_clients_list`, `api_session_active_client_select`, `api_me_invitations_list`, `api_invitations_accept`, `api_invitations_reject`) and, for a platform admin, `platform_*` routes are available. A tenant route returns `403 {"error": "active_client_required"}`.
+- Logged in with an active client: `POST /api/session/active-client` sets `active_client_id` only for an active membership of the user and migrates the session id. A later call switches the client; a refused selection leaves the session state unchanged. A successful `POST /api/invitations/{invitationId}/accept` also makes the invitation's client active and migrates the session, but only after commit; a refused accept does not change the session. Tenant routes go through the remaining guard checks (§11.1).
 
 ### 11.1 Current HTTP/API surface
 - Application routing loads controllers from `app/src/**/Ui/Http/Api/` and adds the `/api` prefix.
@@ -290,6 +300,13 @@ Session states and active client selection:
   - `GET /api/me/clients` (`api_me_clients_list`) → 200 with the user's active memberships: `[{"clientId": "...", "clientName": "...", "roles": ["admin"]}]`. Suspended memberships are not returned; a user without memberships gets `[]`. The API never selects a client automatically, even for a one-element list.
   - `POST /api/session/active-client` (`api_session_active_client_select`) with `{"clientId": "<uuid>"}` → 204 with no body; the session stores the lowercase UUID, matching the ids from `GET /api/me/clients`. A client without an active membership of the user (foreign, suspended, non-existent) → `403 {"error": "Access denied"}`; a `clientId` that is not a UUID → 400 with validation errors.
   - `POST /api/auth/otp/verify` keeps its `{"ok": true}` / `{"ok": false}` contract.
+- Client invitations (`Client/Ui/Http/Api/ClientInvitationController`). In production, a membership is created only by accepting an invitation; `CreateClientMemberCommand` has no HTTP route and serves Behat fixtures.
+  - `POST /api/clients/{clientId}/invitations` (`api_client_invitations_create`, `ADMIN_REQUIRED_ROUTE_NAMES`) with `{"email": "...", "role": "user"}` → 201 `{"id": "<uuid>"}`. A role other than `user` → `403 {"error": "Client admin can invite only with role user"}`; a pending invitation for this client and email → `409 {"error": "A pending invitation for this email already exists"}`; a person with a membership in the client, active or suspended → `409 {"error": "User is already a member of this client"}`; invalid input → 400. The invitation does not create a user account.
+  - `POST /api/clients/{clientId}/invitations/{invitationId}/revoke` (`api_client_invitations_revoke`, `ADMIN_REQUIRED_ROUTE_NAMES`) → 204. A non-existent invitation or one of another client → `404 {"error": "Not found"}`; an invitation with role `admin` → `403 {"error": "Client admin can revoke only invitations with role user"}`; a status other than `pending` → `409 {"error": "Invitation is not pending"}`.
+  - `GET /api/me/invitations` (`api_me_invitations_list`) → 200 `[{"id": "...", "clientId": "...", "clientName": "...", "role": "user", "createdAt": "..."}]`: only pending invitations addressed to the logged-in user's email.
+  - `POST /api/invitations/{invitationId}/accept` (`api_invitations_accept`) → 204. In one transaction it stores `accepted` and creates the membership with the invitation's role through `ClientMemberFactory`; after commit it sets `active_client_id` (§11). A non-existent invitation or one addressed to another email → `404 {"error": "Not found"}`; a status other than `pending` → `409 {"error": "Invitation is not pending"}`; a membership that exists at accept time → `409 {"error": "User is already a member of this client"}`, the invitation stays `pending` and the admin can revoke it.
+  - `POST /api/invitations/{invitationId}/reject` (`api_invitations_reject`) → 204, without a membership; the same 404/409 refusals as accept.
+  - A concurrent change of the invitation in accept, reject or revoke → `409 {"error": "Invitation was changed concurrently"}` (§9.4). An `{invitationId}` that is not a lowercase UUID → 404 from routing.
 
 ## 12. Test strategy (minimum)
 - Domain unit: test aggregate behavior with FakeOutside and deterministic time.
@@ -303,6 +320,7 @@ Tests in `app/tests/Architecture/BoundedContextDependenciesTest.php` run Deptrac
 - Given: sets application state only through Commands (CommandBus/handlers), never through endpoints.
 - When: executes only endpoints (HTTP).
 - Then: verifies state through Query (DBAL/read model). Endpoints in Then are allowed only for HTTP code / error mapping assertions.
+- Contexts of one suite share one browser per scenario (`app.behat.kernel_browser` in `config/services_test.yaml`), so the session from an OTP login in `UserContext` applies to steps of another context.
 - For shared "Given" steps, use:
   - `FixtureContext` (shared state arrangement steps)
   - `FixtureRegistry` (alias -> fixture/Id mapping)

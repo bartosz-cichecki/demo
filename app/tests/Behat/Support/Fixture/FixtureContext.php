@@ -5,12 +5,13 @@ declare(strict_types=1);
 namespace App\Tests\Behat\Support\Fixture;
 
 use App\Client\Application\Client\Command\CreateClient\CreateClientCommand;
+use App\Client\Application\ClientInvitation\Command\CreateClientInvitation\CreateClientInvitationCommand;
 use App\Client\Application\ClientMember\Command\CreateClientMember\CreateClientMemberCommand;
 use App\Client\Application\ClientMember\Command\SuspendClientMember\SuspendClientMemberCommand;
 use App\SharedKernel\Application\CommandBus\CommandBusInterface;
 use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
-use App\User\Application\User\Command\UpsertUserByEmail\UpsertUserByEmailCommand;
+use App\User\Application\User\Command\LogInUserByEmail\LogInUserByEmailCommand;
 use App\User\Application\User\Query\UserQueryInterface;
 use Behat\Behat\Context\Context;
 use Behat\Behat\Hook\Scope\BeforeScenarioScope;
@@ -34,6 +35,7 @@ final class FixtureContext implements Context
     public function clearFixtures(BeforeScenarioScope $scope): void
     {
         $this->registry->clear();
+        $this->connection->executeStatement('DELETE FROM client.client_invitations');
         $this->connection->executeStatement('DELETE FROM client.client_memberships');
         $this->connection->executeStatement('DELETE FROM client.clients');
         $this->connection->executeStatement('DELETE FROM "user".otp_challenges');
@@ -72,7 +74,8 @@ final class FixtureContext implements Context
      */
     public function thereIsAUserWithEmail(string $alias, string $email): void
     {
-        $this->commandBus->dispatch(new UpsertUserByEmailCommand($email));
+        // User accounts are created only by the OTP login command.
+        $this->commandBus->dispatch(new LogInUserByEmailCommand(Email::fromString($email)));
 
         $dto = $this->userQuery->findByEmail(Email::fromString($email));
         if (null === $dto) {
@@ -115,6 +118,22 @@ final class FixtureContext implements Context
             $clientId,
             $userId,
         ));
+    }
+
+    /**
+     * @Given there is a pending invitation of :email to :clientAlias with role :role
+     */
+    public function thereIsAPendingInvitationOfToWithRole(string $email, string $clientAlias, string $role): void
+    {
+        $id = Id::new();
+        $this->commandBus->dispatch(new CreateClientInvitationCommand(
+            $id,
+            $this->registry->getClient($clientAlias)->id,
+            Email::fromString($email),
+            $role,
+        ));
+
+        $this->registry->putInvitation($email, $clientAlias, $id);
     }
 
     /**

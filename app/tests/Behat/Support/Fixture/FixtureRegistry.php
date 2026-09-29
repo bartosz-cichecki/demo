@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Behat\Support\Fixture;
 
+use App\SharedKernel\Domain\ValueObject\Id;
+
 final class FixtureRegistry
 {
     /** @var array<string, ClientFixture> */
@@ -11,6 +13,9 @@ final class FixtureRegistry
 
     /** @var array<string, UserFixture> */
     private array $users = [];
+
+    /** @var array<string, Id> */
+    private array $invitations = [];
 
     private ?string $authenticatedUserId = null;
     private ?string $authenticatedClientId = null;
@@ -44,10 +49,26 @@ final class FixtureRegistry
         return $this->users[$alias];
     }
 
+    public function putInvitation(string $email, string $clientAlias, Id $id): void
+    {
+        $this->invitations[$this->invitationKey($email, $clientAlias)] = $id;
+    }
+
+    public function getInvitation(string $email, string $clientAlias): Id
+    {
+        $key = $this->invitationKey($email, $clientAlias);
+        if (!isset($this->invitations[$key])) {
+            throw new \RuntimeException(\sprintf('Invitation fixture "%s" not found. Available: %s', $key, implode(', ', array_keys($this->invitations)) ?: '(none)'));
+        }
+
+        return $this->invitations[$key];
+    }
+
     public function clear(): void
     {
         $this->clients = [];
         $this->users = [];
+        $this->invitations = [];
         $this->authenticatedUserId = null;
         $this->authenticatedClientId = null;
         $this->authenticatedIsPlatformAdmin = false;
@@ -74,5 +95,10 @@ final class FixtureRegistry
             'activeClientId' => $this->authenticatedClientId,
             'isPlatformAdmin' => $this->authenticatedIsPlatformAdmin,
         ];
+    }
+
+    private function invitationKey(string $email, string $clientAlias): string
+    {
+        return mb_strtolower($email) . ' -> ' . $clientAlias;
     }
 }

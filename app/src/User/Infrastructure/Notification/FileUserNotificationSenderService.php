@@ -13,14 +13,16 @@ final readonly class FileUserNotificationSenderService implements UserNotificati
     ) {
     }
 
-    public function sendUserRegisteredNotification(string $userId, string $email, string $registeredAt): void
+    public function sendClientInvitationNotification(string $invitationId, string $email, string $clientName, string $role): void
     {
-        $line = \sprintf(
-            'user_registered userId=%s email=%s registeredAt=%s',
-            $userId,
-            $email,
-            $registeredAt,
-        );
+        $line = json_encode([
+            'type' => 'client_invitation',
+            'invitationId' => $invitationId,
+            'email' => $email,
+            'clientName' => $clientName,
+            'role' => $role,
+            'message' => \sprintf('You were invited to join %s as %s. Log in to accept or reject the invitation.', $clientName, $role),
+        ], \JSON_THROW_ON_ERROR);
 
         $directory = \dirname($this->filePath);
         if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
@@ -42,6 +44,7 @@ final readonly class FileUserNotificationSenderService implements UserNotificati
                 throw new \RuntimeException(\sprintf('Notification file "%s" could not be read.', $this->filePath));
             }
 
+            // Business idempotency for a crash after delivery but before the consumption is marked processed.
             if (str_contains($contents, $line . "\n") || str_ends_with($contents, $line)) {
                 return;
             }

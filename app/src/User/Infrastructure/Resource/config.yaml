@@ -1,6 +1,6 @@
 parameters:
     app.otp_mailbox_path: '%kernel.project_dir%/var/notifications/otp.jsonl'
-    app.user_registered_notification_log_path: '%kernel.project_dir%/var/notifications/user_registered.log'
+    app.user_notification_log_path: '%kernel.project_dir%/var/notifications/user_notifications.jsonl'
 
 services:
     App\User\Infrastructure\OtpChallenge\FileOtpCodeSenderService:
@@ -9,7 +9,7 @@ services:
 
     App\User\Infrastructure\Notification\FileUserNotificationSenderService:
         arguments:
-            $filePath: '%app.user_registered_notification_log_path%'
+            $filePath: '%app.user_notification_log_path%'
 
 doctrine:
     orm:

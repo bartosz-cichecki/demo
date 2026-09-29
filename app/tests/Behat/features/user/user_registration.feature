@@ -146,11 +146,3 @@ Feature: User registration
         When I select active client "otp-recovery-client"
         Then the response status should be 204
         And session should contain active client id for "otp-recovery-client"
-
-    Scenario: Registered user notification is processed asynchronously
-        When I register user "new_user" with email "new-user@example.com"
-        Then an integration event for registered user "new-user@example.com" should be stored in the outbox
-        When the integration events are processed
-        Then a user registration notification for "new-user@example.com" should be stored
-        When the integration events are processed
-        Then exactly one user registration notification for "new-user@example.com" should be stored

@@ -19,11 +19,6 @@ final readonly class SessionContext
         return $this->requireId('user_id');
     }
 
-    public function activeClientId(): Id
-    {
-        return $this->requireId('active_client_id');
-    }
-
     private function requireId(string $key): Id
     {
         $request = $this->requestStack->getCurrentRequest();

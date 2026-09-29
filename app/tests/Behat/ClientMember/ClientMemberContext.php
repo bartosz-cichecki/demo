@@ -5,11 +5,8 @@ declare(strict_types=1);
 namespace App\Tests\Behat\ClientMember;
 
 use App\Client\Application\ClientMember\Query\ClientMemberQueryInterface;
-use App\SharedKernel\Domain\ValueObject\Email;
-use App\SharedKernel\Domain\ValueObject\Id;
 use App\Tests\Behat\Support\Fixture\FixtureRegistry;
 use App\Tests\Behat\Support\Http\AuthenticatedSessionApplier;
-use App\User\Application\User\Query\UserQueryInterface;
 use Behat\Behat\Context\Context;
 use PHPUnit\Framework\Assert;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
@@ -22,7 +19,6 @@ final class ClientMemberContext implements Context
         private readonly KernelBrowser $client,
         private readonly FixtureRegistry $registry,
         private readonly ClientMemberQueryInterface $clientMemberQuery,
-        private readonly UserQueryInterface $userQuery,
         private readonly AuthenticatedSessionApplier $sessionApplier,
     ) {
     }
@@ -30,25 +26,6 @@ final class ClientMemberContext implements Context
     // ========================================
     // When: HTTP endpoints only
     // ========================================
-
-    /**
-     * @When I provision a member with email :email
-     */
-    public function iProvisionAMemberWithEmail(string $email): void
-    {
-        $this->sessionApplier->apply($this->client);
-
-        $this->client->request(
-            'POST',
-            '/api/client-members',
-            [],
-            [],
-            ['CONTENT_TYPE' => 'application/json'],
-            json_encode(['email' => $email], \JSON_THROW_ON_ERROR),
-        );
-
-        $this->lastResponseCode = $this->client->getResponse()->getStatusCode();
-    }
 
     /**
      * @When I replace roles for :userAlias in :clientAlias with :roles
@@ -119,33 +96,6 @@ final class ClientMemberContext implements Context
     // ========================================
 
     /**
-     * @Then the membership should be created successfully
-     */
-    public function theMembershipShouldBeCreatedSuccessfully(): void
-    {
-        Assert::assertSame(201, $this->lastResponseCode, \sprintf(
-            'Expected status 201, got %d. Response: %s',
-            $this->lastResponseCode,
-            (string) $this->client->getResponse()->getContent(),
-        ));
-    }
-
-    /**
-     * @Then I should get a conflict error
-     */
-    public function iShouldGetAConflictError(): void
-    {
-        Assert::assertSame(409, $this->lastResponseCode, \sprintf(
-            'Expected status 409, got %d',
-            $this->lastResponseCode,
-        ));
-        Assert::assertSame(
-            ['error' => 'Member already exists for this client'],
-            json_decode((string) $this->client->getResponse()->getContent(), true, 512, \JSON_THROW_ON_ERROR),
-        );
-    }
-
-    /**
      * @Then the operation should succeed
      */
     public function theOperationShouldSucceed(): void
@@ -185,16 +135,6 @@ final class ClientMemberContext implements Context
     // ========================================
 
     /**
-     * @Then client :clientAlias should have :count member(s)
-     */
-    public function clientShouldHaveMembers(string $clientAlias, int $count): void
-    {
-        $clientId = $this->registry->getClient($clientAlias)->id;
-        $members = $this->clientMemberQuery->listByClient($clientId);
-        Assert::assertCount($count, $members);
-    }
-
-    /**
      * @Then the member :userAlias in client :clientAlias should have roles :roles
      */
     public function theMemberInClientShouldHaveRoles(string $userAlias, string $clientAlias, string $roles): void
@@ -221,39 +161,6 @@ final class ClientMemberContext implements Context
         $dto = $this->clientMemberQuery->findByClientAndUser($clientId, $userId);
 
         Assert::assertNotNull($dto, \sprintf('Member %s not found in client %s', $userAlias, $clientAlias));
-        Assert::assertSame($status, $dto->status);
-    }
-
-    /**
-     * @Then the provisioned member :email in client :clientAlias should have roles :roles
-     */
-    public function theProvisionedMemberInClientShouldHaveRoles(string $email, string $clientAlias, string $roles): void
-    {
-        $user = $this->userQuery->findByEmail(Email::fromString($email));
-        Assert::assertNotNull($user, \sprintf('User with email %s not found', $email));
-
-        $clientId = $this->registry->getClient($clientAlias)->id;
-        $dto = $this->clientMemberQuery->findByClientAndUser($clientId, new Id($user->id));
-
-        Assert::assertNotNull($dto, \sprintf('Membership for %s not found in client %s', $email, $clientAlias));
-
-        $expectedRoles = array_map('trim', explode(',', $roles));
-        sort($expectedRoles);
-        Assert::assertSame($expectedRoles, $dto->roles);
-    }
-
-    /**
-     * @Then the provisioned member :email in client :clientAlias should have status :status
-     */
-    public function theProvisionedMemberInClientShouldHaveStatus(string $email, string $clientAlias, string $status): void
-    {
-        $user = $this->userQuery->findByEmail(Email::fromString($email));
-        Assert::assertNotNull($user, \sprintf('User with email %s not found', $email));
-
-        $clientId = $this->registry->getClient($clientAlias)->id;
-        $dto = $this->clientMemberQuery->findByClientAndUser($clientId, new Id($user->id));
-
-        Assert::assertNotNull($dto, \sprintf('Membership for %s not found in client %s', $email, $clientAlias));
         Assert::assertSame($status, $dto->status);
     }
 

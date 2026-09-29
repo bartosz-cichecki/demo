@@ -28,11 +28,6 @@ abstract readonly class AbstractController
         return $this->sessionContext->userId();
     }
 
-    protected function requireActiveClientId(): Id
-    {
-        return $this->sessionContext->activeClientId();
-    }
-
     protected function executeCommand(CommandInterface $command): void
     {
         $this->commandBus->dispatch($command);
