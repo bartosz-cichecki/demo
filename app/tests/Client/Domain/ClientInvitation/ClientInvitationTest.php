@@ -38,6 +38,31 @@ final class ClientInvitationTest extends TestCase
         $this->otherUserId = Id::new();
     }
 
+    public function testPlatformRevokesAdminInvitationAndItCannotBeAccepted(): void
+    {
+        $invitation = $this->invitation('admin');
+        $invitation->revokeByPlatformAdmin();
+        $events = $this->collector->pull();
+        self::assertCount(1, $events);
+        self::assertInstanceOf(ClientInvitationRevoked::class, $events[0]);
+        $this->expectException(ClientInvitationNotPendingException::class);
+        $invitation->accept($this->inviteeId, Id::new(), new ClientMemberFactory(new FakeClientMemberOutside($this->collector)));
+    }
+
+    public function testPlatformCannotRevokeUserInvitation(): void
+    {
+        $this->expectException(ClientInvitationRoleNotAllowedException::class);
+        $this->invitation('user')->revokeByPlatformAdmin();
+    }
+
+    public function testPlatformCannotRevokeRejectedAdminInvitation(): void
+    {
+        $invitation = $this->invitation('admin');
+        $invitation->reject($this->inviteeId);
+        $this->expectException(ClientInvitationNotPendingException::class);
+        $invitation->revokeByPlatformAdmin();
+    }
+
     public function testConstructionRejectsUnknownRole(): void
     {
         $this->expectException(\InvalidArgumentException::class);

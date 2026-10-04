@@ -139,6 +139,19 @@ final class ClientInvitation
         if (ClientMember::ROLE_USER !== $this->role) {
             throw new ClientInvitationRoleNotAllowedException($this->role);
         }
+        $this->revoke();
+    }
+
+    public function revokeByPlatformAdmin(): void
+    {
+        if (ClientMember::ROLE_ADMIN !== $this->role) {
+            throw new ClientInvitationRoleNotAllowedException($this->role);
+        }
+        $this->revoke();
+    }
+
+    private function revoke(): void
+    {
         $this->assertPending();
 
         $this->changeStatus(self::STATUS_REVOKED);

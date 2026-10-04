@@ -25,10 +25,10 @@ This backlog is not a list of every tool that could be added to the repository. 
 | 2 | OTP cooldown decision in Domain | DONE | 2026-09-26 | 2026-09-26 | Apply architecture §6–6.1 to OTP issuance |
 | 3 | OTP verification attempt limit in Domain | DONE | 2026-09-26 | 2026-09-26 | Keep the rule in the aggregate and commit failed attempts |
 | 4 | Client membership uniqueness in Domain | DONE | 2026-09-28 | 2026-09-28 | Centralize validation shared by both creation handlers |
-| 5 | Explicit client selection and membership invitations | TODO | 2026-09-28 | — | Real multi-tenant flow with consent and cross-BC async |
+| 5 | Explicit client selection and membership invitations | DONE | 2026-10-02 | 2026-10-02 | Real multi-tenant flow with consent and cross-BC async |
 | 5.1 | Explicit active client selection | DONE | 2026-09-28 | 2026-09-28 | Replace the implicit UUID-ordered client choice at login |
 | 5.2 | Client membership invitations | DONE | 2026-09-29 | 2026-09-29 | Membership requires user consent; async notification Client → User |
-| 5.3 | Client onboarding invites the first admin | TODO | 2026-09-28 | — | Close the gap where only fixtures create client admins |
+| 5.3 | Client onboarding invites the first admin | DONE | 2026-10-02 | 2026-10-02 | Close the gap where only fixtures create client admins |
 | 6 | Mermaid architecture flow | TODO | 2026-09-28 | — | Show the main architecture flow in 30 seconds |
 | 7 | README first screen polish | TODO | 2026-04-30 | — | Explain quickly what the demo is and what it proves |
 | 8 | Architecture Decision Records | TODO | 2026-04-30 | — | Show conscious decisions and trade-offs |
@@ -164,7 +164,7 @@ Verification: [factory tests](../app/tests/Client/Domain/ClientMember/ClientMemb
 
 ## 5. Explicit client selection and membership invitations
 
-Status: `TODO`
+Status: `DONE`
 
 ### Why
 
@@ -233,6 +233,8 @@ Implementation evidence: [aggregate](../app/src/Client/Domain/ClientInvitation/C
 
 ### 5.3 Client onboarding invites the first admin
 
+Status: `DONE`
+
 Scope:
 
 - `POST /api/clients` (`platform_clients_create`) requires `adminEmail`. One command creates the `Client` and a `ClientInvitation` with role `admin` in the same transaction. The rest is the 5.2 flow: async notification, OTP login, accept, membership with role `admin`.
@@ -245,6 +247,10 @@ Done when:
 
 - Behat covers: platform creates a client with `adminEmail` → notification → OTP login → accept → admin of the new client; a missing `adminEmail` is rejected; the recovery route after a rejected first invitation; revoking a mistyped admin invitation, after which accepting it is refused, then inviting the correct email; a non-platform user calling any of these routes is refused.
 - The updated `platform_clients_create` contract is reflected in Behat and `docs/architecture.md` §11.1.
+
+Completion note (2026-10-02): `platform_clients_create` requires `adminEmail`. `OnboardClientCommand` creates the client and its first pending admin invitation in one `CommandBus` transaction, including EventLog and the notification outbox write. The existing notification → OTP → acceptance flow creates the admin membership and selects the client after commit. Platform-only routes invite another admin to an existing client and revoke a pending admin invitation by normalized email. They share the 5.2 factory invariants; tenant admins cannot create or revoke admin invitations. `CreateClientMemberCommand` remains a fixture/test tool, and `CreateClientCommand` is explicitly marked as a fixture/test tool. The last-active-admin invariant remains outside this iteration.
+
+Implementation evidence: [onboarding handler](../app/src/Client/Application/Client/Command/OnboardClient/OnboardClientCommandHandler.php), [platform invitation controller](../app/src/Client/Ui/Http/Api/PlatformAdminInvitationController.php), [factory](../app/src/Client/Domain/ClientInvitation/Factory/ClientInvitationFactory.php), and [aggregate](../app/src/Client/Domain/ClientInvitation/ClientInvitation.php). Verification: [platform Behat scenarios](../app/tests/Behat/features/platform/client_onboarding.feature) cover notification, OTP, acceptance, rejection recovery, revocation, validation and authorization; [atomicity integration test](../app/tests/Client/Application/Client/OnboardClientIntegrationTest.php) proves rollback after the real outbox write; [concurrency integration tests](../app/tests/Client/Infrastructure/ClientInvitation/ClientInvitationConcurrencyIntegrationTest.php) cover admin accept vs platform revoke in both directions; [domain tests](../app/tests/Client/Domain/ClientInvitation/) preserve invitation rules. Both architecture documents describe all three platform contracts in §11.1 and the transaction in §9. All five quality gates passed sequentially: CS, PHPStan, Deptrac (zero violations/uncovered dependencies), PHPUnit (215 tests, 1173 assertions), and Behat (66 scenarios, 762 steps). The full suite also preserves the client selection, membership and invitation flows from 5.1–5.2.
 
 ### Notes
 

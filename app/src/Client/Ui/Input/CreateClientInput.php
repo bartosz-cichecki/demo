@@ -13,6 +13,7 @@ final readonly class CreateClientInput implements Input
     public function __construct(
         public string $name,
         public ?string $description,
+        public string $adminEmail,
     ) {
     }
 
@@ -26,15 +27,25 @@ final readonly class CreateClientInput implements Input
         /** @var string|null $description */
         $description = $payload['description'] ?? null;
 
+        /** @var string $adminEmail */
+        $adminEmail = $payload['adminEmail'];
+
         return new self(
             name: $name,
             description: $description,
+            adminEmail: $adminEmail,
         );
     }
 
     public static function getSchema(): Collection
     {
         return new Collection([
+            'adminEmail' => [
+                new Assert\NotBlank(message: 'Admin email is required.'),
+                new Assert\Type('string'),
+                new Assert\Email(message: 'Email is not valid.'),
+                new Assert\Length(max: 255, maxMessage: 'Email must not exceed 255 characters.'),
+            ],
             'name' => [
                 new Assert\NotBlank(message: 'Name is required.'),
                 new Assert\Type('string'),
