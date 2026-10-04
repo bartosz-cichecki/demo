@@ -87,7 +87,7 @@ The underlying aggregates are small, but they model real business responsibiliti
 
 ### `ClientInvitation`
 
-- **Protects**: at most one pending invitation per client and email; no invitation for a person who already has a membership, active or suspended; a client admin invites and revokes only with role `user`; only the invited email can accept or reject; transitions happen only from `pending` and concurrent transitions are rejected by optimistic locking.
+- **Protects**: at most one pending invitation per client and email; no invitation for a person who already has a membership, active or suspended; a client admin invites and revokes only with role `user`; only the invited email can accept or reject; transitions happen only from `pending`. Concurrent transitions are serialized by a pessimistic row lock held until the `CommandBus` transaction commits or rolls back; the next request sees the committed state and the domain rule decides whether the transition is allowed. Platform revoke returns 404 when no pending invitation remains.
 - **Enables**: membership with the invitee's consent; accepting creates the membership and the invitation status change atomically.
 
 ### `User`
@@ -138,7 +138,7 @@ Admin `POST /api/clients/{clientId}/invitations` with email and role `user` -> 2
 
 Outcome: membership requires consent, and the demo shows a real cross-BC async flow (Client -> integration event -> User) with a notification delivered exactly once even when the worker runs repeatedly.
 
-The same feature covers rejecting, revoking by the admin, a duplicate pending invitation, inviting an active or suspended member (409), acting on someone else's invitation (404), inviting without the admin role and inviting with role `admin` as a client admin (403). Real concurrent transitions (accept vs revoke, reject vs revoke, accept vs accept) are covered by `app/tests/Client/Infrastructure/ClientInvitation/ClientInvitationConcurrencyIntegrationTest.php` with an independent writer on a separate connection.
+The same feature covers rejecting, revoking by the admin, a duplicate pending invitation, inviting an active or suspended member (409), acting on someone else's invitation (404), inviting without the admin role and inviting with role `admin` as a client admin (403). `app/tests/Client/Infrastructure/ClientInvitation/ClientInvitationConcurrencyIntegrationTest.php` proves that each repository read used for a transition holds a row lock: a separate connection receives PostgreSQL SQLSTATE `55P03` from `FOR UPDATE NOWAIT` until the first transaction ends. Domain tests cover refused transitions from every terminal state; Behat covers the HTTP contracts, including platform revoke returning 404 when no pending invitation exists.
 
 ### 4. Admin suspends and unsuspends a member
 

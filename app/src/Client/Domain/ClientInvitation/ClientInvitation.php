@@ -49,11 +49,6 @@ final class ClientInvitation
     #[ORM\Column(length: 32)]
     private string $status;
 
-    // Optimistic lock: a concurrent transition makes the second flush fail.
-    #[ORM\Version]
-    #[ORM\Column(type: 'integer')]
-    private int $version = 1;
-
     #[ORM\Column(type: 'domain_datetime')]
     private DateTime $createdAt;
 
