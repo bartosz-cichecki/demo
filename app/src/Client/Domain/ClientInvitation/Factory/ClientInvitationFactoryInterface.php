@@ -14,6 +14,12 @@ use App\SharedKernel\Domain\ValueObject\Id;
 interface ClientInvitationFactoryInterface
 {
     /**
+     * @throws PendingClientInvitationAlreadyExistsException
+     * @throws InviteeAlreadyMemberException
+     */
+    public function createByPlatformAdmin(Id $id, Id $clientId, Email $email): ClientInvitation;
+
+    /**
      * @throws ClientInvitationRoleNotAllowedException
      * @throws PendingClientInvitationAlreadyExistsException
      * @throws InviteeAlreadyMemberException

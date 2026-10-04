@@ -6,6 +6,8 @@ default:
             contexts:
                 - App\Tests\Behat\Support\Fixture\FixtureContext
                 - App\Tests\Behat\Platform\PlatformClientContext
+                - App\Tests\Behat\User\UserContext
+                - App\Tests\Behat\ClientInvitation\ClientInvitationContext
         tenant:
             paths:
                 - "%paths.base%/tests/Behat/features/tenant"

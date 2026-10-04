@@ -7,7 +7,9 @@ namespace App\Tests\Client\Infrastructure\ClientInvitation;
 use App\Client\Application\Client\Command\CreateClient\CreateClientCommand;
 use App\Client\Application\ClientInvitation\Command\AcceptClientInvitation\AcceptClientInvitationCommand;
 use App\Client\Application\ClientInvitation\Command\CreateClientInvitation\CreateClientInvitationCommand;
+use App\Client\Application\ClientInvitation\Command\InviteClientAdmin\InviteClientAdminCommand;
 use App\Client\Application\ClientInvitation\Command\RejectClientInvitation\RejectClientInvitationCommand;
+use App\Client\Application\ClientInvitation\Command\RevokeClientAdminInvitation\RevokeClientAdminInvitationCommand;
 use App\Client\Application\ClientInvitation\Command\RevokeClientInvitation\RevokeClientInvitationCommand;
 use App\Client\Domain\ClientInvitation\Event\ClientInvitationAccepted;
 use App\Client\Domain\ClientInvitation\Event\ClientInvitationRejected;
@@ -41,6 +43,7 @@ final class ClientInvitationConcurrencyIntegrationTest extends KernelTestCase
     private Id $clientId;
     private Id $invitationId;
     private Id $userId;
+    private Email $email;
 
     protected function setUp(): void
     {
@@ -61,6 +64,7 @@ final class ClientInvitationConcurrencyIntegrationTest extends KernelTestCase
         $this->clientId = Id::new();
         $this->invitationId = Id::new();
         $email = Email::fromString((string) Id::new() . '@example.com');
+        $this->email = $email;
         $this->commandBus->dispatch(new CreateClientCommand($this->clientId, 'Concurrency', null));
         $this->commandBus->dispatch(new CreateClientInvitationCommand($this->invitationId, $this->clientId, $email, 'user'));
         $this->commandBus->dispatch(new LogInUserByEmailCommand($email));
@@ -111,6 +115,41 @@ final class ClientInvitationConcurrencyIntegrationTest extends KernelTestCase
         self::assertSame(0, $this->membershipCount());
         self::assertSame(0, $this->eventLogCount(ClientInvitationRejected::class, 'clientInvitationId', $this->invitationId));
         self::assertSame(1, $this->eventLogCount(ClientInvitationRevoked::class, 'clientInvitationId', $this->invitationId));
+    }
+
+    public function testPlatformRevokeWinsOverAdminAcceptAndRollsBackMembership(): void
+    {
+        $this->replaceWithAdminInvitation();
+        $exception = $this->runWithConcurrentWriter(
+            new AcceptClientInvitationCommand($this->invitationId, $this->userId),
+            new RevokeClientAdminInvitationCommand($this->clientId, $this->email),
+        );
+
+        self::assertInstanceOf(OptimisticLockException::class, $exception);
+        self::assertSame(['status' => 'revoked', 'version' => 2], $this->invitationState());
+        self::assertSame(0, $this->membershipCount());
+        self::assertSame(0, $this->eventLogCount(ClientInvitationAccepted::class, 'clientInvitationId', $this->invitationId));
+    }
+
+    public function testAcceptWinsOverPlatformRevoke(): void
+    {
+        $this->replaceWithAdminInvitation();
+        $exception = $this->runWithConcurrentWriter(
+            new RevokeClientAdminInvitationCommand($this->clientId, $this->email),
+            new AcceptClientInvitationCommand($this->invitationId, $this->userId),
+        );
+
+        self::assertInstanceOf(OptimisticLockException::class, $exception);
+        self::assertSame(['status' => 'accepted', 'version' => 2], $this->invitationState());
+        self::assertSame(1, $this->membershipCount());
+        self::assertSame(0, $this->eventLogCount(ClientInvitationRevoked::class, 'clientInvitationId', $this->invitationId));
+    }
+
+    private function replaceWithAdminInvitation(): void
+    {
+        $this->commandBus->dispatch(new RevokeClientInvitationCommand($this->invitationId, $this->clientId));
+        $this->invitationId = Id::new();
+        $this->commandBus->dispatch(new InviteClientAdminCommand($this->invitationId, $this->clientId, $this->email));
     }
 
     public function testConcurrentAcceptCreatesExactlyOneMembership(): void

@@ -214,7 +214,7 @@ final class UserContext implements Context
             [],
             [],
             ['CONTENT_TYPE' => 'application/json'],
-            json_encode(['name' => $name], \JSON_THROW_ON_ERROR),
+            json_encode(['name' => $name, 'adminEmail' => 'first-admin@example.com'], \JSON_THROW_ON_ERROR),
         );
     }
 

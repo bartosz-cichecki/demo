@@ -31,6 +31,16 @@ final readonly class ClientInvitationFactory implements ClientInvitationFactoryI
             throw new ClientInvitationRoleNotAllowedException($role);
         }
 
+        return $this->create($id, $clientId, $email, $role);
+    }
+
+    public function createByPlatformAdmin(Id $id, Id $clientId, Email $email): ClientInvitation
+    {
+        return $this->create($id, $clientId, $email, ClientMember::ROLE_ADMIN);
+    }
+
+    private function create(Id $id, Id $clientId, Email $email, string $role): ClientInvitation
+    {
         // Backed by a partial unique index on (client_id, email) for pending invitations.
         if ($this->clientInvitationOutside->pendingInvitationExists($clientId, $email)) {
             throw new PendingClientInvitationAlreadyExistsException($clientId);

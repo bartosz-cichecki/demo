@@ -36,6 +36,33 @@ final class ClientInvitationFactoryTest extends TestCase
         self::assertEquals($outside->now(), $events[0]->occurredAt);
     }
 
+    public function testPlatformCreatesAdminInvitation(): void
+    {
+        $collector = new InMemoryDomainEventsCollector();
+        $outside = new FakeClientInvitationOutside($collector);
+        (new ClientInvitationFactory($outside))->createByPlatformAdmin(Id::new(), Id::new(), Email::fromString('Admin@Example.com'));
+
+        $events = $collector->pull();
+        self::assertCount(1, $events);
+        self::assertInstanceOf(ClientInvitationCreated::class, $events[0]);
+        self::assertSame('admin', $events[0]->role);
+        self::assertSame('admin@example.com', $events[0]->email);
+    }
+
+    public function testPlatformCannotDuplicatePendingInvitation(): void
+    {
+        $outside = new FakeClientInvitationOutside(new InMemoryDomainEventsCollector(), pendingInvitationExists: true);
+        $this->expectException(PendingClientInvitationAlreadyExistsException::class);
+        (new ClientInvitationFactory($outside))->createByPlatformAdmin(Id::new(), Id::new(), Email::fromString('admin@example.com'));
+    }
+
+    public function testPlatformCannotInviteExistingMember(): void
+    {
+        $outside = new FakeClientInvitationOutside(new InMemoryDomainEventsCollector(), membershipExists: true);
+        $this->expectException(InviteeAlreadyMemberException::class);
+        (new ClientInvitationFactory($outside))->createByPlatformAdmin(Id::new(), Id::new(), Email::fromString('admin@example.com'));
+    }
+
     public function testClientAdminCannotInviteWithRoleAdmin(): void
     {
         $collector = new InMemoryDomainEventsCollector();

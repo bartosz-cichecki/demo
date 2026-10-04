@@ -2,20 +2,19 @@
 
 declare(strict_types=1);
 
-namespace App\Client\Application\Client\Command\CreateClient;
+namespace App\Client\Application\Client\Command\OnboardClient;
 
 use App\SharedKernel\Application\CommandBus\CommandInterface;
+use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
 
-/**
- * Fixture/test tool only. Production onboarding uses invitations.
- */
-final readonly class CreateClientCommand implements CommandInterface
+final readonly class OnboardClientCommand implements CommandInterface
 {
     public function __construct(
         public Id $id,
         public string $name,
         public ?string $description,
+        public Email $adminEmail,
     ) {
     }
 }
