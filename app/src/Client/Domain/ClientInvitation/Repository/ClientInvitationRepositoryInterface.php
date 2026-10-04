@@ -6,6 +6,8 @@ namespace App\Client\Domain\ClientInvitation\Repository;
 
 use App\Client\Domain\ClientInvitation\ClientInvitation;
 use App\Client\Domain\ClientInvitation\Repository\Exception\ClientInvitationDoesNotExistException;
+use App\Client\Domain\ClientInvitation\Repository\Exception\PendingClientInvitationDoesNotExistException;
+use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
 
 interface ClientInvitationRepositoryInterface
@@ -21,4 +23,9 @@ interface ClientInvitationRepositoryInterface
      * @throws ClientInvitationDoesNotExistException when the invitation is absent or belongs to another client
      */
     public function getForClient(Id $id, Id $clientId): ClientInvitation;
+
+    /**
+     * @throws PendingClientInvitationDoesNotExistException
+     */
+    public function getPendingForClientAndEmail(Id $clientId, Email $email): ClientInvitation;
 }

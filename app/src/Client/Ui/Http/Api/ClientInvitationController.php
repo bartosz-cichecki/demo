@@ -22,7 +22,6 @@ use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
 use App\SharedKernel\Ui\Http\Api\AbstractController;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
-use Doctrine\ORM\OptimisticLockException;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -108,7 +107,11 @@ final readonly class ClientInvitationController extends AbstractController
         ClientInvitationQueryInterface $clientInvitationQuery,
     ): JsonResponse {
         $id = new Id($invitationId);
-        $conflict = $this->executeTransition(new AcceptClientInvitationCommand($id, $this->requireUserId()));
+        try {
+            $conflict = $this->executeTransition(new AcceptClientInvitationCommand($id, $this->requireUserId()));
+        } catch (UniqueConstraintViolationException) {
+            return new JsonResponse(['error' => self::ERROR_ALREADY_MEMBER], Response::HTTP_CONFLICT);
+        }
         if (null !== $conflict) {
             return $conflict;
         }
@@ -140,7 +143,7 @@ final readonly class ClientInvitationController extends AbstractController
     }
 
     /**
-     * Runs a status transition and maps refused or concurrent transitions to 409.
+     * Runs a status transition and maps domain refusals to 409.
      * A missing invitation or one addressed to someone else propagates as 404.
      */
     private function executeTransition(CommandInterface $command): ?JsonResponse
@@ -151,8 +154,6 @@ final readonly class ClientInvitationController extends AbstractController
             return new JsonResponse(['error' => 'Invitation is not pending'], Response::HTTP_CONFLICT);
         } catch (ClientMemberAlreadyExistsException) {
             return new JsonResponse(['error' => self::ERROR_ALREADY_MEMBER], Response::HTTP_CONFLICT);
-        } catch (OptimisticLockException|UniqueConstraintViolationException) {
-            return new JsonResponse(['error' => 'Invitation was changed concurrently'], Response::HTTP_CONFLICT);
         }
 
         return null;

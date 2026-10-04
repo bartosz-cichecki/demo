@@ -7,7 +7,6 @@ namespace App\Client\Ui\Http\Api;
 use App\Client\Application\ClientInvitation\Command\InviteClientAdmin\InviteClientAdminCommand;
 use App\Client\Application\ClientInvitation\Command\RevokeClientAdminInvitation\RevokeClientAdminInvitationCommand;
 use App\Client\Domain\Client\Repository\Exception\ClientDoesNotExistException;
-use App\Client\Domain\ClientInvitation\Exception\ClientInvitationNotPendingException;
 use App\Client\Domain\ClientInvitation\Exception\ClientInvitationRoleNotAllowedException;
 use App\Client\Domain\ClientInvitation\Exception\InviteeAlreadyMemberException;
 use App\Client\Domain\ClientInvitation\Exception\PendingClientInvitationAlreadyExistsException;
@@ -16,7 +15,6 @@ use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
 use App\SharedKernel\Ui\Http\Api\AbstractController;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
-use Doctrine\ORM\OptimisticLockException;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -57,10 +55,6 @@ final readonly class PlatformAdminInvitationController extends AbstractControlle
             $this->executeCommand(new RevokeClientAdminInvitationCommand(new Id($clientId), $email));
         } catch (ClientInvitationRoleNotAllowedException) {
             return new JsonResponse(['error' => 'Platform admin can revoke only invitations with role admin'], Response::HTTP_FORBIDDEN);
-        } catch (ClientInvitationNotPendingException) {
-            return new JsonResponse(['error' => 'Invitation is not pending'], Response::HTTP_CONFLICT);
-        } catch (OptimisticLockException) {
-            return new JsonResponse(['error' => 'Invitation was changed concurrently'], Response::HTTP_CONFLICT);
         }
 
         return new JsonResponse(null, Response::HTTP_NO_CONTENT);

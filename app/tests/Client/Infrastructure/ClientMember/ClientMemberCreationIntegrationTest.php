@@ -84,32 +84,40 @@ final class ClientMemberCreationIntegrationTest extends KernelTestCase
             $observedQuery,
         ));
 
+        // This test invokes handlers directly to observe the membership lookup.
+        // Supply the transaction normally owned by CommandBus and a fresh UnitOfWork.
+        $em->clear();
+        $em->beginTransaction();
         try {
-            if ($acceptInvitation) {
-                $handler = new AcceptClientInvitationCommandHandler($invitationRepository, $factory, $observedRepository);
-                $handler(new AcceptClientInvitationCommand($invitationId, $userId));
-            } else {
-                $handler = new CreateClientMemberCommandHandler($factory, $observedRepository);
-                $handler(new CreateClientMemberCommand($clientId, $userId, ['user']));
+            try {
+                if ($acceptInvitation) {
+                    $handler = new AcceptClientInvitationCommandHandler($invitationRepository, $factory, $observedRepository);
+                    $handler(new AcceptClientInvitationCommand($invitationId, $userId));
+                } else {
+                    $handler = new CreateClientMemberCommandHandler($factory, $observedRepository);
+                    $handler(new CreateClientMemberCommand($clientId, $userId, ['user']));
+                }
+                self::assertNull($status, 'An existing membership must be rejected.');
+            } catch (ClientMemberAlreadyExistsException) {
+                self::assertNotNull($status, 'An absent membership must be admitted.');
             }
-            self::assertNull($status, 'An existing membership must be rejected.');
-        } catch (ClientMemberAlreadyExistsException) {
-            self::assertNotNull($status, 'An absent membership must be admitted.');
-        }
 
-        $em->flush();
-        $after = $query->findByClientAndUser($clientId, $userId);
-        self::assertNotNull($after);
-        self::assertCount(1, $query->listByClient($clientId));
-        $events = $collector->pull();
-        if (null !== $status) {
-            self::assertEquals($before, $after);
-            self::assertSame([], $events);
-        } else {
-            self::assertSame(ClientMember::STATUS_ACTIVE, $after->status);
-            self::assertSame(['user'], $after->roles);
-            self::assertCount(1, $events);
-            self::assertInstanceOf(ClientMemberCreated::class, $events[0]);
+            $em->flush();
+            $after = $query->findByClientAndUser($clientId, $userId);
+            self::assertNotNull($after);
+            self::assertCount(1, $query->listByClient($clientId));
+            $events = $collector->pull();
+            if (null !== $status) {
+                self::assertEquals($before, $after);
+                self::assertSame([], $events);
+            } else {
+                self::assertSame(ClientMember::STATUS_ACTIVE, $after->status);
+                self::assertSame(['user'], $after->roles);
+                self::assertCount(1, $events);
+                self::assertInstanceOf(ClientMemberCreated::class, $events[0]);
+            }
+        } finally {
+            $em->rollback();
         }
     }
 

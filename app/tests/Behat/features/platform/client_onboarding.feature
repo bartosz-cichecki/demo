@@ -27,6 +27,10 @@ Feature: Platform onboards clients by inviting an administrator
         And "first@example.com" should be a member of "Acme" with roles "admin" and status "active"
         And session should contain active client id for "Acme"
         And the session id should have changed on accepting the invitation
+        Given I am logged in as platform admin "platform"
+        When I revoke admin "first@example.com" from client "Acme" via platform API
+        Then the response status should be 404
+        And the response error should be "Not found"
 
     Scenario: Missing admin email is rejected
         When I onboard client "Incomplete" without admin email
@@ -52,6 +56,9 @@ Feature: Platform onboards clients by inviting an administrator
         Then the response status should be 204
         And "first@example.com" should not be a member of "Acme"
         Given I am logged in as platform admin "platform"
+        When I revoke admin "first@example.com" from client "Acme" via platform API
+        Then the response status should be 404
+        And the response error should be "Not found"
         When I invite admin "next@example.com" to client "Acme" via platform API
         Then the response status should be 201
         When I request OTP for email "next@example.com" from IP "127.0.0.2"
@@ -77,6 +84,7 @@ Feature: Platform onboards clients by inviting an administrator
         Given I am logged in as platform admin "platform"
         When I revoke admin "wrong@example.com" from client "Acme" via platform API
         Then the response status should be 404
+        And the response error should be "Not found"
         When I invite admin "correct@example.com" to client "Acme" via platform API
         Then the response status should be 201
         When I request OTP for email "correct@example.com" from IP "127.0.0.2"
