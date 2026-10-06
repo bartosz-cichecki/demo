@@ -13,8 +13,6 @@ use App\Client\Domain\ClientInvitation\Exception\ClientInvitationNotPendingExcep
 use App\Client\Domain\ClientInvitation\Exception\ClientInvitationRoleNotAllowedException;
 use App\Client\Domain\ClientInvitation\Outside\ClientInvitationOutsideInterface;
 use App\Client\Domain\ClientMember\ClientMember;
-use App\Client\Domain\ClientMember\Factory\ClientMemberFactoryInterface;
-use App\Client\Domain\ClientMember\Repository\Exception\ClientMemberAlreadyExistsException;
 use App\SharedKernel\Domain\Attribute\OutsideField;
 use App\SharedKernel\Domain\ValueObject\DateTime;
 use App\SharedKernel\Domain\ValueObject\Email;
@@ -85,18 +83,13 @@ final class ClientInvitation
     }
 
     /**
-     * Accepting creates the membership in the same unit of work as the status change.
-     *
      * @throws ClientInvitationNotAddressedToUserException
      * @throws ClientInvitationNotPendingException
-     * @throws ClientMemberAlreadyExistsException
      */
-    public function accept(Id $userId, Id $clientMemberId, ClientMemberFactoryInterface $clientMemberFactory): ClientMember
+    public function accept(Id $userId): void
     {
         $this->assertAddressedTo($userId);
         $this->assertPending();
-
-        $member = $clientMemberFactory->create($clientMemberId, $this->clientId, $userId, [$this->role]);
 
         $this->changeStatus(self::STATUS_ACCEPTED);
         $this->outside()->record(new ClientInvitationAccepted(
@@ -106,8 +99,6 @@ final class ClientInvitation
             $this->role,
             $this->updatedAt,
         ));
-
-        return $member;
     }
 
     /**

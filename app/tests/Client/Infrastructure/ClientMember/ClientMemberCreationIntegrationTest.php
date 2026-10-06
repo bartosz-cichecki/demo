@@ -8,6 +8,7 @@ use App\Client\Application\Client\Command\CreateClient\CreateClientCommand;
 use App\Client\Application\ClientInvitation\Command\AcceptClientInvitation\AcceptClientInvitationCommand;
 use App\Client\Application\ClientInvitation\Command\AcceptClientInvitation\AcceptClientInvitationCommandHandler;
 use App\Client\Application\ClientInvitation\Command\CreateClientInvitation\CreateClientInvitationCommand;
+use App\Client\Application\ClientInvitation\Query\ClientInvitationQueryInterface;
 use App\Client\Application\ClientMember\Command\CreateClientMember\CreateClientMemberCommand;
 use App\Client\Application\ClientMember\Command\CreateClientMember\CreateClientMemberCommandHandler;
 use App\Client\Application\ClientMember\Command\SuspendClientMember\SuspendClientMemberCommand;
@@ -42,12 +43,14 @@ final class ClientMemberCreationIntegrationTest extends KernelTestCase
         $query = $container->get(ClientMemberQueryInterface::class);
         $repository = $container->get(ClientMemberRepositoryInterface::class);
         $invitationRepository = $container->get(ClientInvitationRepositoryInterface::class);
+        $invitationQuery = $container->get(ClientInvitationQueryInterface::class);
         $userQuery = $container->get(UserQueryInterface::class);
         $em = $container->get(EntityManagerInterface::class);
         self::assertInstanceOf(CommandBusInterface::class, $commandBus);
         self::assertInstanceOf(ClientMemberQueryInterface::class, $query);
         self::assertInstanceOf(ClientMemberRepositoryInterface::class, $repository);
         self::assertInstanceOf(ClientInvitationRepositoryInterface::class, $invitationRepository);
+        self::assertInstanceOf(ClientInvitationQueryInterface::class, $invitationQuery);
         self::assertInstanceOf(UserQueryInterface::class, $userQuery);
         self::assertInstanceOf(EntityManagerInterface::class, $em);
 
@@ -91,18 +94,18 @@ final class ClientMemberCreationIntegrationTest extends KernelTestCase
         try {
             try {
                 if ($acceptInvitation) {
-                    $handler = new AcceptClientInvitationCommandHandler($invitationRepository, $factory, $observedRepository);
+                    $handler = new AcceptClientInvitationCommandHandler($invitationRepository, $factory, $observedRepository, $invitationQuery);
                     $handler(new AcceptClientInvitationCommand($invitationId, $userId));
                 } else {
                     $handler = new CreateClientMemberCommandHandler($factory, $observedRepository);
                     $handler(new CreateClientMemberCommand($clientId, $userId, ['user']));
                 }
                 self::assertNull($status, 'An existing membership must be rejected.');
+                $em->flush();
             } catch (ClientMemberAlreadyExistsException) {
                 self::assertNotNull($status, 'An absent membership must be admitted.');
             }
 
-            $em->flush();
             $after = $query->findByClientAndUser($clientId, $userId);
             self::assertNotNull($after);
             self::assertCount(1, $query->listByClient($clientId));

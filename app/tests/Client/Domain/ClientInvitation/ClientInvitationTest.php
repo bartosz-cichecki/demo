@@ -11,13 +11,9 @@ use App\Client\Domain\ClientInvitation\Event\ClientInvitationRevoked;
 use App\Client\Domain\ClientInvitation\Exception\ClientInvitationNotAddressedToUserException;
 use App\Client\Domain\ClientInvitation\Exception\ClientInvitationNotPendingException;
 use App\Client\Domain\ClientInvitation\Exception\ClientInvitationRoleNotAllowedException;
-use App\Client\Domain\ClientMember\Event\ClientMemberCreated;
-use App\Client\Domain\ClientMember\Factory\ClientMemberFactory;
-use App\Client\Domain\ClientMember\Repository\Exception\ClientMemberAlreadyExistsException;
 use App\SharedKernel\Domain\Event\InMemoryDomainEventsCollector;
 use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
-use App\Tests\Client\Domain\ClientMember\FakeClientMemberOutside;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -46,7 +42,7 @@ final class ClientInvitationTest extends TestCase
         self::assertCount(1, $events);
         self::assertInstanceOf(ClientInvitationRevoked::class, $events[0]);
         $this->expectException(ClientInvitationNotPendingException::class);
-        $invitation->accept($this->inviteeId, Id::new(), new ClientMemberFactory(new FakeClientMemberOutside($this->collector)));
+        $invitation->accept($this->inviteeId);
     }
 
     public function testPlatformCannotRevokeUserInvitation(): void
@@ -70,46 +66,29 @@ final class ClientInvitationTest extends TestCase
         $this->invitation('owner');
     }
 
-    public function testAcceptCreatesMembershipWithInvitedRoleAndRecordsAcceptance(): void
+    #[DataProvider('invitedRoles')]
+    public function testAcceptRecordsAcceptance(string $role): void
     {
-        $invitation = $this->invitation();
-        $memberId = Id::new();
-        $memberOutside = new FakeClientMemberOutside($this->collector);
+        $invitation = $this->invitation($role);
 
-        $invitation->accept($this->inviteeId, $memberId, new ClientMemberFactory($memberOutside));
+        $invitation->accept($this->inviteeId);
 
-        self::assertSame([[$this->clientId, $this->inviteeId]], $memberOutside->membershipLookups);
-        $events = $this->collector->pull();
-        self::assertCount(2, $events);
-        self::assertInstanceOf(ClientMemberCreated::class, $events[0]);
-        self::assertEquals($memberId, $events[0]->clientMemberId);
-        self::assertEquals($this->clientId, $events[0]->clientId);
-        self::assertEquals($this->inviteeId, $events[0]->userId);
-        self::assertSame(['user'], $events[0]->roles);
-        self::assertInstanceOf(ClientInvitationAccepted::class, $events[1]);
-        self::assertEquals($this->invitationId, $events[1]->clientInvitationId);
-        self::assertEquals($this->clientId, $events[1]->clientId);
-        self::assertEquals($this->inviteeId, $events[1]->userId);
-        self::assertSame('user', $events[1]->role);
-    }
-
-    public function testAcceptWithExistingMembershipLeavesInvitationPending(): void
-    {
-        $invitation = $this->invitation();
-
-        try {
-            $invitation->accept($this->inviteeId, Id::new(), new ClientMemberFactory(new FakeClientMemberOutside($this->collector, membershipExists: true)));
-            self::fail('Expected an existing membership to be refused.');
-        } catch (ClientMemberAlreadyExistsException) {
-        }
-        $eventsAfterRefusal = $this->collector->pull();
-        self::assertSame([], $eventsAfterRefusal);
-
-        // Still pending: the admin can revoke it.
-        $invitation->revokeByClientAdmin();
         $events = $this->collector->pull();
         self::assertCount(1, $events);
-        self::assertInstanceOf(ClientInvitationRevoked::class, $events[0]);
+        self::assertInstanceOf(ClientInvitationAccepted::class, $events[0]);
+        $acceptance = $events[0];
+        self::assertEquals($this->invitationId, $acceptance->clientInvitationId);
+        self::assertEquals($this->clientId, $acceptance->clientId);
+        self::assertEquals($this->inviteeId, $acceptance->userId);
+        self::assertSame($role, $acceptance->role);
+        self::assertSame('2026-09-29 10:00:00', $acceptance->occurredAt->toStorageString());
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function invitedRoles(): iterable
+    {
+        yield 'user' => ['user'];
+        yield 'admin' => ['admin'];
     }
 
     public function testRejectRecordsRejection(): void
@@ -229,7 +208,7 @@ final class ClientInvitationTest extends TestCase
     private function act(ClientInvitation $invitation, string $action, Id $userId): void
     {
         match ($action) {
-            'accept' => $invitation->accept($userId, Id::new(), new ClientMemberFactory(new FakeClientMemberOutside($this->collector))),
+            'accept' => $invitation->accept($userId),
             'reject' => $invitation->reject($userId),
             'revoke' => $invitation->revokeByClientAdmin(),
             default => throw new \LogicException($action),

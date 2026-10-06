@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Client\Application\ClientInvitation\Command\AcceptClientInvitation;
 
+use App\Client\Application\ClientInvitation\Query\ClientInvitationQueryInterface;
 use App\Client\Domain\ClientInvitation\Exception\ClientInvitationNotAddressedToUserException;
 use App\Client\Domain\ClientInvitation\Exception\ClientInvitationNotPendingException;
 use App\Client\Domain\ClientInvitation\Repository\ClientInvitationRepositoryInterface;
@@ -19,6 +20,7 @@ final readonly class AcceptClientInvitationCommandHandler
         private ClientInvitationRepositoryInterface $clientInvitationRepository,
         private ClientMemberFactoryInterface $clientMemberFactory,
         private ClientMemberRepositoryInterface $clientMemberRepository,
+        private ClientInvitationQueryInterface $clientInvitationQuery,
     ) {
     }
 
@@ -31,7 +33,17 @@ final readonly class AcceptClientInvitationCommandHandler
     public function __invoke(AcceptClientInvitationCommand $command): void
     {
         $invitation = $this->clientInvitationRepository->get($command->invitationId);
-        $member = $invitation->accept($command->userId, Id::new(), $this->clientMemberFactory);
+        $invitation->accept($command->userId);
+
+        // Read immutable membership data while the invitation row remains locked.
+        $invitationData = $this->clientInvitationQuery->findById($command->invitationId)
+            ?? throw new ClientInvitationDoesNotExistException($command->invitationId);
+        $member = $this->clientMemberFactory->create(
+            Id::new(),
+            new Id($invitationData->clientId),
+            $command->userId,
+            [$invitationData->role],
+        );
         $this->clientMemberRepository->create($member);
     }
 }
