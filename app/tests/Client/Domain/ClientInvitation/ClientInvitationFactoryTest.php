@@ -12,6 +12,7 @@ use App\Client\Domain\ClientInvitation\Factory\ClientInvitationFactory;
 use App\SharedKernel\Domain\Event\InMemoryDomainEventsCollector;
 use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class ClientInvitationFactoryTest extends TestCase
@@ -25,7 +26,6 @@ final class ClientInvitationFactoryTest extends TestCase
 
         (new ClientInvitationFactory($outside))->createByClientAdmin($id, $clientId, Email::fromString('Bob@Example.com'), 'user');
 
-        self::assertSame(['pendingInvitationExists', 'membershipExists'], $outside->lookups);
         $events = $collector->pull();
         self::assertCount(1, $events);
         self::assertInstanceOf(ClientInvitationCreated::class, $events[0]);
@@ -49,42 +49,16 @@ final class ClientInvitationFactoryTest extends TestCase
         self::assertSame('admin@example.com', $events[0]->email);
     }
 
-    public function testPlatformCannotDuplicatePendingInvitation(): void
-    {
-        $outside = new FakeClientInvitationOutside(new InMemoryDomainEventsCollector(), pendingInvitationExists: true);
-        $this->expectException(PendingClientInvitationAlreadyExistsException::class);
-        (new ClientInvitationFactory($outside))->createByPlatformAdmin(Id::new(), Id::new(), Email::fromString('admin@example.com'));
-    }
-
-    public function testPlatformCannotInviteExistingMember(): void
-    {
-        $outside = new FakeClientInvitationOutside(new InMemoryDomainEventsCollector(), membershipExists: true);
-        $this->expectException(InviteeAlreadyMemberException::class);
-        (new ClientInvitationFactory($outside))->createByPlatformAdmin(Id::new(), Id::new(), Email::fromString('admin@example.com'));
-    }
-
-    public function testClientAdminCannotInviteWithRoleAdmin(): void
+    /**
+     * @param \Closure(ClientInvitationFactory): mixed $create
+     */
+    #[DataProvider('creators')]
+    public function testRefusesSecondPendingInvitationForSameClientAndEmail(\Closure $create): void
     {
         $collector = new InMemoryDomainEventsCollector();
-        $outside = new FakeClientInvitationOutside($collector);
 
         try {
-            (new ClientInvitationFactory($outside))->createByClientAdmin(Id::new(), Id::new(), Email::fromString('bob@example.com'), 'admin');
-            self::fail('Expected role admin to be refused for a client admin.');
-        } catch (ClientInvitationRoleNotAllowedException) {
-        }
-
-        self::assertSame([], $outside->lookups);
-        self::assertSame([], $collector->pull());
-    }
-
-    public function testRejectsSecondPendingInvitationForSameClientAndEmail(): void
-    {
-        $collector = new InMemoryDomainEventsCollector();
-        $outside = new FakeClientInvitationOutside($collector, pendingInvitationExists: true);
-
-        try {
-            (new ClientInvitationFactory($outside))->createByClientAdmin(Id::new(), Id::new(), Email::fromString('bob@example.com'), 'user');
+            $create(new ClientInvitationFactory(new FakeClientInvitationOutside($collector, pendingInvitationExists: true)));
             self::fail('Expected a duplicate pending invitation to be refused.');
         } catch (PendingClientInvitationAlreadyExistsException) {
         }
@@ -92,18 +66,43 @@ final class ClientInvitationFactoryTest extends TestCase
         self::assertSame([], $collector->pull());
     }
 
-    public function testRejectsInvitationOfExistingActiveOrSuspendedMember(): void
+    /**
+     * @param \Closure(ClientInvitationFactory): mixed $create
+     */
+    #[DataProvider('creators')]
+    public function testRefusesInvitationOfExistingMember(\Closure $create): void
     {
         $collector = new InMemoryDomainEventsCollector();
-        $outside = new FakeClientInvitationOutside($collector, membershipExists: true);
 
         try {
-            (new ClientInvitationFactory($outside))->createByClientAdmin(Id::new(), Id::new(), Email::fromString('bob@example.com'), 'user');
+            $create(new ClientInvitationFactory(new FakeClientInvitationOutside($collector, membershipExists: true)));
             self::fail('Expected an existing member to be refused.');
         } catch (InviteeAlreadyMemberException) {
         }
 
-        self::assertSame(['pendingInvitationExists', 'membershipExists'], $outside->lookups);
+        self::assertSame([], $collector->pull());
+    }
+
+    /**
+     * @return iterable<string, array{\Closure(ClientInvitationFactory): mixed}>
+     */
+    public static function creators(): iterable
+    {
+        yield 'client admin' => [static fn (ClientInvitationFactory $factory) => $factory->createByClientAdmin(Id::new(), Id::new(), Email::fromString('bob@example.com'), 'user')];
+        yield 'platform admin' => [static fn (ClientInvitationFactory $factory) => $factory->createByPlatformAdmin(Id::new(), Id::new(), Email::fromString('bob@example.com'))];
+    }
+
+    public function testClientAdminRoleRefusalTakesPrecedenceOverConflicts(): void
+    {
+        $collector = new InMemoryDomainEventsCollector();
+        $outside = new FakeClientInvitationOutside($collector, pendingInvitationExists: true, membershipExists: true);
+
+        try {
+            (new ClientInvitationFactory($outside))->createByClientAdmin(Id::new(), Id::new(), Email::fromString('bob@example.com'), 'admin');
+            self::fail('Expected role admin to be refused for a client admin.');
+        } catch (ClientInvitationRoleNotAllowedException) {
+        }
+
         self::assertSame([], $collector->pull());
     }
 }

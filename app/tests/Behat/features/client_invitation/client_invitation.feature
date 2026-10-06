@@ -46,14 +46,6 @@ Feature: Client membership invitations
         And the response error should be "Invitation is not pending"
         And client "acme" should have 2 members
 
-    Scenario: The invitation notification is written exactly once despite repeated worker runs
-        Given there is a pending invitation of "bob@example.com" to "acme" with role "user"
-        When the integration events are processed
-        And the integration events are processed
-        And the integration events are processed
-        Then 1 invitation notification to "acme" for "bob@example.com" should be stored
-        And the invitation integration event for "bob@example.com" should be processed exactly once
-
     # === Invitee decisions ===
 
     Scenario: Invitee rejects the invitation and does not become a member

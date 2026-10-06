@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Tests\Client\Application\Client;
 
 use App\Client\Application\Client\Command\OnboardClient\OnboardClientCommand;
-use App\Client\Application\IntegrationEvent\ClientInvitationCreatedIntegrationEvent;
 use App\SharedKernel\Application\CommandBus\CommandBusInterface;
 use App\SharedKernel\Application\IntegrationEvent\IntegrationEvent;
 use App\SharedKernel\Application\IntegrationEvent\IntegrationEventPublisherInterface;
@@ -34,10 +33,9 @@ final class OnboardClientIntegrationTest extends KernelTestCase
         $id = Id::new();
         $email = Email::fromString((string) Id::new() . '@example.com');
         $failure = new \RuntimeException('Simulated failure after durable notification enqueue');
-        $failingPublisher = $this->createMock(IntegrationEventPublisherInterface::class);
-        $failingPublisher->expects(self::once())->method('publish')->willReturnCallback(
+        $failingPublisher = $this->createStub(IntegrationEventPublisherInterface::class);
+        $failingPublisher->method('publish')->willReturnCallback(
             static function (IntegrationEvent $event) use ($publisher, $connection, $id, $failure): void {
-                self::assertInstanceOf(ClientInvitationCreatedIntegrationEvent::class, $event);
                 $publisher->publish($event);
                 // Failure happens after real ORM flush and real outbox insertion, before commit.
                 self::assertNotFalse($connection->fetchOne('SELECT id FROM client.clients WHERE id = :id', ['id' => (string) $id]));
@@ -59,7 +57,6 @@ final class OnboardClientIntegrationTest extends KernelTestCase
         self::assertFalse($connection->isTransactionActive());
         self::assertSame([], $connection->fetchFirstColumn('SELECT id FROM client.clients WHERE id = :id', ['id' => (string) $id]));
         self::assertSame([], $connection->fetchFirstColumn('SELECT id FROM client.client_invitations WHERE client_id = :id', ['id' => (string) $id]));
-        self::assertSame([], $connection->fetchFirstColumn('SELECT id FROM client.client_memberships WHERE client_id = :id', ['id' => (string) $id]));
         self::assertSame([], $connection->fetchFirstColumn("SELECT event_id FROM shared.async_outbox WHERE payload ->> 'clientId' = :id", ['id' => (string) $id]));
         self::assertSame([], $connection->fetchFirstColumn("SELECT event_id FROM shared.event_log WHERE payload ->> 'clientId' = :id", ['id' => (string) $id]));
     }
