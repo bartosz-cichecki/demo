@@ -13,9 +13,11 @@ use Doctrine\DBAL\Connection;
 
 final readonly class ClientInvitationQuery implements ClientInvitationQueryInterface
 {
-    private const string SELECT = 'SELECT i.id, i.client_id, c.name AS client_name, i.email, i.role, i.status, i.created_at, i.updated_at
-         FROM client.client_invitations i
-         JOIN client.clients c ON c.id = i.client_id';
+    private const string SELECT = <<<'SQL'
+        SELECT i.id, i.client_id, c.name AS client_name, i.email, i.role, i.status, i.created_at, i.updated_at
+        FROM client.client_invitations i
+        JOIN client.clients c ON c.id = i.client_id
+        SQL;
 
     public function __construct(
         private Connection $connection,
