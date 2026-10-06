@@ -217,6 +217,7 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 ## 9. Transakcje i flush (jeden punkt)
 - Flush/commit jest w jednym miejscu (centralna orkiestracja).
 - Repozytoria robią `persist()`, nie robią `flush()`.
+- `ClientInvitation::accept(userId)` sprawdza reguły zaproszenia, zmienia jego stan i rejestruje `ClientInvitationAccepted`. Następnie `AcceptClientInvitationCommandHandler` odczytuje niezmienne dane klienta i roli przez `ClientInvitationQueryInterface`, przy nadal utrzymywanej blokadzie zaproszenia, tworzy członkostwo przez `ClientMemberFactory` i zapisuje je przez repozytorium w tej samej transakcji `CommandBus`. Błąd tworzenia lub zapisu członkostwa wycofuje również akceptację zaproszenia.
 - Wyjątki tylko gdy są twardo uzasadnione i opisane w kodzie (preferowane w SharedKernel, nie w BC).
 - Onboarding klienta przez `OnboardClientCommand` zapisuje `Client` i pierwsze zaproszenie z rolą `admin` w jednej transakcji `CommandBus`. `ClientInvitationSaga` zapisuje powiadomienie do outboxa w tej samej transakcji; błąd przed commit wycofuje klienta, zaproszenie, EventLog i outbox. `OnboardClientIntegrationTest` wymusza błąd po rzeczywistym flushu ORM i zapisie outboxa oraz sprawdza brak częściowego onboardingu. `CreateClientCommand` i `CreateClientMemberCommand` są narzędziami fixture/testów, bez produkcyjnej trasy HTTP; członkostwo administratora powstaje przez akceptację zaproszenia.
 ### 9.1 EventBus / Subscribery (twarda reguła)

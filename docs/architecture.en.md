@@ -218,6 +218,7 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 ## 9. Transactions and flush (one point)
 - Flush/commit is in one place (central orchestration).
 - Repositories call `persist()`, not `flush()`.
+- `ClientInvitation::accept(userId)` checks invitation rules, changes its state and records `ClientInvitationAccepted`. Then `AcceptClientInvitationCommandHandler` reads the immutable client and role data through `ClientInvitationQueryInterface` while still holding the invitation lock, creates the membership through `ClientMemberFactory` and persists it through the repository in the same `CommandBus` transaction. A failure to create or persist the membership also rolls back invitation acceptance.
 - Exceptions only when strongly justified and described in code (preferred in SharedKernel, not in a BC).
 - Client onboarding through `OnboardClientCommand` stores the `Client` and the first invitation with role `admin` in one `CommandBus` transaction. `ClientInvitationSaga` writes the notification to the outbox in the same transaction; a failure before commit rolls back the client, invitation, EventLog and outbox. `OnboardClientIntegrationTest` forces a failure after the real ORM flush and outbox write and checks that no partial onboarding remains. `CreateClientCommand` and `CreateClientMemberCommand` are fixture/test tools without a production HTTP route; the administrator membership is created by accepting the invitation.
 
