@@ -152,6 +152,17 @@ final class ClientInvitationTest extends TestCase
         $this->act($invitation, $action, Id::new());
     }
 
+    #[DataProvider('inviteeActions')]
+    public function testSomeoneElseIsRefusedEvenWhenTheInvitationIsNoLongerPending(string $action): void
+    {
+        $invitation = $this->invitation();
+        $invitation->accept($this->inviteeId);
+
+        // Refusing as not addressed (404) must not reveal the status of someone else's invitation (409).
+        $this->expectException(ClientInvitationNotAddressedToUserException::class);
+        $this->act($invitation, $action, $this->otherUserId);
+    }
+
     /**
      * @return iterable<string, array{string}>
      */

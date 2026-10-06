@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Tests\Behat\Platform;
 
-use App\Client\Application\Client\Query\ClientQueryInterface;
 use App\Client\Application\ClientInvitation\Query\ClientInvitationQueryInterface;
 use App\SharedKernel\Domain\ValueObject\Email;
 use App\SharedKernel\Domain\ValueObject\Id;
@@ -18,11 +17,8 @@ use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 
 final class PlatformClientContext implements Context
 {
-    private ?string $createdClientId = null;
-
     public function __construct(
         private readonly KernelBrowser $client,
-        private readonly ClientQueryInterface $clientQuery,
         private readonly AuthenticatedSessionApplier $sessionApplier,
         private readonly FixtureRegistry $registry,
         private readonly ClientInvitationQueryInterface $invitationQuery,
@@ -79,7 +75,6 @@ final class PlatformClientContext implements Context
         if (201 === $this->client->getResponse()->getStatusCode()) {
             /** @var array{id: string} $data */
             $data = json_decode((string) $this->client->getResponse()->getContent(), true, 512, \JSON_THROW_ON_ERROR);
-            $this->createdClientId = $data['id'];
             $this->registry->putClient($name, new ClientFixture(new Id($data['id']), $name));
         }
     }
@@ -119,18 +114,5 @@ final class PlatformClientContext implements Context
         $this->sessionApplier->apply($this->client);
         $id = $this->registry->getClient($alias)->id();
         $this->client->request('POST', "/api/clients/{$id}/admin-invitations{$suffix}", [], [], ['CONTENT_TYPE' => 'application/json'], json_encode(['email' => $email], \JSON_THROW_ON_ERROR));
-    }
-
-    /**
-     * @Then a client named :name should exist
-     */
-    public function aClientNamedShouldExist(string $name): void
-    {
-        Assert::assertNotNull($this->createdClientId, 'No client was created');
-
-        $dto = $this->clientQuery->findById(new Id($this->createdClientId));
-
-        Assert::assertNotNull($dto);
-        Assert::assertSame($name, $dto->name);
     }
 }

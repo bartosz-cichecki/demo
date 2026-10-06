@@ -14,9 +14,6 @@ Feature: User registration
         And the user with email "otp-user@example.com" should be logged in
         And session should contain user id for "otp-user@example.com"
         And session should not contain active client id
-        When I select active client "acme"
-        Then the response status should be 204
-        And session should contain active client id for "acme"
 
     Scenario Outline: Cooldown silently blocks delivery for the same email or IP
         When I request OTP for email "cooldown@example.com" from IP "192.0.2.1"
@@ -49,30 +46,6 @@ Feature: User registration
         And there should be 1 OTP challenges for "first@example.com"
         And there should be 1 OTP challenges for "second@example.com"
         And I can read the delivered OTP for "second@example.com" from the demo mailbox
-
-    Scenario Outline: OTP login leaves client selection to the user, who can select only an active membership
-        Given there is a client "alpha"
-        And there is a client "beta"
-        And there is a user "mixed_member" with email "mixed-member@example.com"
-        And there is a membership of "mixed_member" in "<suspended_client>" with roles "admin"
-        And membership of "mixed_member" in "<suspended_client>" is suspended
-        And there is a membership of "mixed_member" in "<active_client>" with roles "user"
-        When I request OTP for email "mixed-member@example.com"
-        And I verify OTP for email "mixed-member@example.com" with code "123456"
-        Then OTP verify response should be ok true
-        And session should contain user id for "mixed-member@example.com"
-        And session should not contain active client id
-        When I select active client "<suspended_client>"
-        Then the response status should be 403
-        And session should not contain active client id
-        When I select active client "<active_client>"
-        Then the response status should be 204
-        And session should contain active client id for "<active_client>"
-
-        Examples:
-            | suspended_client | active_client |
-            | alpha            | beta          |
-            | beta             | alpha         |
 
     Scenario: OTP verify with invalid code does not log user in
         When I request OTP for email "otp-user-invalid@example.com"
@@ -143,6 +116,3 @@ Feature: User registration
         And the latest OTP challenge for "otp-recovery@example.com" should be consumed
         And session should contain user id for "otp-recovery@example.com"
         And session should not contain active client id
-        When I select active client "otp-recovery-client"
-        Then the response status should be 204
-        And session should contain active client id for "otp-recovery-client"

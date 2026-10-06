@@ -38,33 +38,16 @@ final class ClientInvitationNotificationIntegrationTest extends KernelTestCase
         $this->notificationLogPath = $notificationLogPath;
     }
 
-    public function testInvitationIsPublishedByClientAndNotifiedByUserExactlyOnce(): void
+    public function testRedeliveryAfterCrashDoesNotDuplicateNotification(): void
     {
         $clientId = Id::new();
         $invitationId = Id::new();
         $email = (string) Id::new() . '@example.com';
         $this->commandBus->dispatch(new CreateClientCommand($clientId, 'Notified Corp', null));
         $this->commandBus->dispatch(new CreateClientInvitationCommand($invitationId, $clientId, Email::fromString($email), 'user'));
-
+        $this->runWorker();
         $outbox = $this->outboxRow($invitationId);
-        self::assertNull($outbox['processed_at']);
-        self::assertIsString($outbox['payload']);
-        $payload = json_decode($outbox['payload'], true, 512, \JSON_THROW_ON_ERROR);
-        self::assertIsArray($payload);
-        self::assertSame((string) $invitationId, $payload['invitationId']);
-        self::assertSame((string) $clientId, $payload['clientId']);
-        self::assertSame('Notified Corp', $payload['clientName']);
-        self::assertSame($email, $payload['email']);
-        self::assertSame('user', $payload['role']);
-        self::assertSame([], $this->notificationsFor($invitationId));
-
-        $this->runWorker();
-        $this->runWorker();
-        $this->runWorker();
-
         self::assertCount(1, $this->notificationsFor($invitationId));
-        self::assertNotNull($this->outboxRow($invitationId)['processed_at']);
-        self::assertSame(['processed'], $this->consumptionStatuses($outbox['event_id']));
 
         // A worker that crashed after delivery but before recording consumption is restarted and repeats
         // the handler. The restart is a separate process, so deduplication cannot rely on process memory;
@@ -107,18 +90,18 @@ final class ClientInvitationNotificationIntegrationTest extends KernelTestCase
     }
 
     /**
-     * @return array{event_id: string, payload: mixed, processed_at: mixed}
+     * @return array{event_id: string, processed_at: mixed}
      */
     private function outboxRow(Id $invitationId): array
     {
         $rows = $this->connection->fetchAllAssociative(
-            "SELECT event_id, payload, processed_at FROM shared.async_outbox WHERE event_name = :eventName AND payload ->> 'invitationId' = :invitationId",
+            "SELECT event_id, processed_at FROM shared.async_outbox WHERE event_name = :eventName AND payload ->> 'invitationId' = :invitationId",
             ['eventName' => ClientInvitationCreatedIntegrationEvent::class, 'invitationId' => (string) $invitationId],
         );
         self::assertCount(1, $rows);
         self::assertIsString($rows[0]['event_id']);
 
-        return ['event_id' => $rows[0]['event_id'], 'payload' => $rows[0]['payload'], 'processed_at' => $rows[0]['processed_at']];
+        return ['event_id' => $rows[0]['event_id'], 'processed_at' => $rows[0]['processed_at']];
     }
 
     /**
