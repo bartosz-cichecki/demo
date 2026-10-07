@@ -29,7 +29,7 @@ This backlog is not a list of every tool that could be added to the repository. 
 | 5.1 | Explicit active client selection | DONE | 2026-09-28 | 2026-09-28 | Replace the implicit UUID-ordered client choice at login |
 | 5.2 | Client membership invitations | DONE | 2026-09-29 | 2026-09-29 | Membership requires user consent; async notification Client → User |
 | 5.3 | Client onboarding invites the first admin | DONE | 2026-10-02 | 2026-10-02 | Close the gap where only fixtures create client admins |
-| 6 | Mermaid architecture flow | TODO | 2026-09-28 | — | Show the main architecture flow in 30 seconds |
+| 6 | Architecture flow diagram | DONE | 2026-10-07 | 2026-10-07 | Show the main architecture flow in 30 seconds |
 | 7 | README first screen polish | TODO | 2026-04-30 | — | Explain quickly what the demo is and what it proves |
 | 8 | Architecture Decision Records | TODO | 2026-04-30 | — | Show conscious decisions and trade-offs |
 | 9 | Repository hygiene | TODO | 2026-04-30 | — | Remove basic red flags from a public repository |
@@ -271,9 +271,9 @@ Follow-up candidate, not scheduled: the invariant "a client keeps at least one a
 
 ---
 
-## 6. Mermaid architecture flow
+## 6. Architecture flow diagram
 
-Status: `TODO`
+Status: `DONE`
 
 ### Why
 
@@ -281,7 +281,7 @@ The diagram should help readers understand the main architecture flow without re
 
 ### Scope
 
-Add one Mermaid diagram to the README showing the main flow:
+Add one architecture flow diagram to the README showing the main flow:
 
 ```text
 HTTP
@@ -306,6 +306,8 @@ The diagram supports understanding. It does not replace the architecture documen
 
 Do this before the README polish, because the diagram becomes direct input for the README architecture section.
 
+Completion note (2026-10-07): the final artifact is a pair of SVG files, [light](architecture-flow/architecture-flow-light.svg) and [dark](architecture-flow/architecture-flow-dark.svg), embedded in the README `Architecture flow` section through `<picture>` so GitHub picks the variant matching the reader's theme; no Mermaid source is kept. The diagram follows the real invitation flow (`POST /api/clients/{clientId}/invitations`): Input validated before the transaction, Command, the one DB transaction owned by `CommandBus`, the domain recording `ClientInvitationCreated` into `DomainEventsBuffer`, a single ORM flush, `EventLog.save` and `EventBus.dispatch` side by side for each buffered event, `ClientInvitationSaga` writing the IntegrationEvent to the Outbox in the same transaction, COMMIT, and the `app:process-outbox` worker running the User subscriber and Notification port after commit. Evidence: [CommandBus](../app/src/SharedKernel/Infrastructure/CommandBus/CommandBus.php), [saga](../app/src/Client/Application/ClientInvitation/Saga/ClientInvitationSaga.php), [outbox publisher](../app/src/SharedKernel/Infrastructure/IntegrationEvent/DbalOutboxPublisher.php), [worker](../app/src/SharedKernel/Ui/ConsoleCommands/ProcessOutboxCommand.php), and [subscriber](../app/src/User/Application/IntegrationEventSubscriber/SendClientInvitationNotificationSubscriber.php).
+
 ---
 
 ## 7. README first screen polish
@@ -326,7 +328,7 @@ The first screen of the README should immediately explain:
 - Short `What this is`.
 - Short `What this proves`.
 - Quick start with the minimum useful command set.
-- Include or highlight the Mermaid diagram with the main architecture flow.
+- Include or highlight the architecture flow diagram.
 - Make Behat more visible as executable business documentation.
 - Keep AI-assisted development information, but place it below the basic product and setup explanation.
 

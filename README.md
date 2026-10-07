@@ -42,6 +42,17 @@ The demo uses DDD and related patterns as engineering tools, not as branding:
 - **UTC clock**: shared ClockInterface with SystemClock/MutableClock and UTC-normalized DateTime storage
 - **Async outbox**: IntegrationEvent -> Postgres outbox -> worker -> async subscriber, with idempotent consumption
 
+## Architecture flow
+
+One real request, a client admin inviting a person, traced from HTTP through a single `CommandBus` transaction to the asynchronous notification in another bounded context.
+
+<a href="docs/architecture-flow/architecture-flow-light.svg">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-flow/architecture-flow-dark.svg">
+  <img alt="Architecture flow: HTTP → validated Input → Command → CommandBus transaction (handler; domain records events into DomainEventsBuffer; one ORM flush; for each buffered event EventLog.save and EventBus.dispatch; ClientInvitationSaga writes IntegrationEvent to Outbox; COMMIT) → worker app:process-outbox polls committed rows → User subscriber → Notification port" src="docs/architecture-flow/architecture-flow-light.svg" width="1520">
+</picture>
+</a>
+
 ## Dev setup
 
 Start the environment:
