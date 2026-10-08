@@ -44,6 +44,10 @@ Select the sections relevant to the task. Do not use plans, backlogs, temporary 
 - Keep route names, commands, classes, files, and configuration naming consistent.
 - Every changed line must map to the task goal.
 
+### 2.1 Migration commands
+
+Migration diffs are targeted at a context namespace (`make migrations-diff-client` / `make migrations-diff-user`). Both `make migrations-migrate-client` and `make migrations-migrate-user` run `doctrine:migrations:migrate` across all registered pending migrations; their names do not mean execution is isolated to one BC. Migration ownership is defined in [architecture §9.3](architecture.en.md#93-migrations).
+
 ## 3) Hard guardrails
 - Do not change architecture or the public HTTP surface unless the prompt explicitly requires it.
 - Do not move business logic into Application for convenience.

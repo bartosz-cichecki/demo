@@ -239,7 +239,7 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 ### 9.3 Migracje
 - Migracje należą do właściciela schematu i są przechowywane w `app/src/{BC}/Infrastructure/Resource/Migrations/`; migracje mechanizmów współdzielonych należą do `SharedKernel`.
 - Namespace'y migracji są rejestrowane centralnie w konfiguracji Doctrine Migrations.
-- Zakres generowania i wykonania migracji przez Makefile opisuje [README](../README.md#dev-setup).
+- Zakres generowania i wykonania migracji przez Makefile opisują [instrukcje dla autorów zmian](instructions-for-agents.md#21-migration-commands).
 
 ### 9.4 Blokowanie agregatów i świeżość stanu
 - Mutacje wymagające serializacji przejść stanu muszą odczytać świeży agregat z blokadą w krótkiej transakcji `CommandBus`. W Demo `ClientInvitationRepository` używa ORM `LockMode::PESSIMISTIC_WRITE` (`SELECT ... FOR UPDATE`) jako pierwszego załadowania agregatu do UnitOfWork.

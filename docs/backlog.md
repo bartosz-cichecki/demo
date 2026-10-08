@@ -334,7 +334,7 @@ The first screen of the README should immediately explain:
 
 ### Notes
 
-The README links to the [platform flows and Behat coverage](platform.md#5-verification-coverage-and-limitations), previously described in its `Key flows` section. This task is polish and hierarchy improvement, not a full rewrite.
+The README contains short `Business capabilities` and `Key flows` sections with links to concrete Behat features; full contracts and coverage details live in the [platform guide](platform.md). This task is polish and hierarchy improvement, not a full rewrite.
 
 ---
 

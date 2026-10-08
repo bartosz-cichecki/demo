@@ -1,6 +1,6 @@
 # Demo platform
 
-This document describes the current platform behavior, HTTP/API contracts and runtime implementation. Architectural rules and guarantees live in the canonical Polish [architecture.md](architecture.md) and its full [English translation](architecture.en.md). Development commands and quality gates are linked from the [README](../README.md#dev-setup). Historical plans in [backlog.md](backlog.md) are not a runtime specification.
+This document describes the current platform behavior, HTTP/API contracts and runtime implementation. Architectural rules and guarantees live in the canonical Polish [architecture.md](architecture.md) and its full [English translation](architecture.en.md). Workflow, migration commands and quality gates live in the [contributor instructions](instructions-for-agents.md). Historical plans in [backlog.md](backlog.md) are not a runtime specification.
 
 ## 1. Scope and responsibilities
 
