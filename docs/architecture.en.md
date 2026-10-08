@@ -1,6 +1,6 @@
 # Architecture
 
-This is a translation. The canonical source of truth is the Polish version: [architecture.md](architecture.md).
+This is the full translation of the canonical Polish [architecture.md](architecture.md), which defines architectural rules, patterns, constraints and guarantees. Current platform behavior, HTTP contracts and runtime details live in [platform.md](platform.md) (English only). Quality gates and workflow: [instructions for agents and contributors](instructions-for-agents.md).
 
 ## 1. Purpose and priorities
 - KISS over "clever".
@@ -97,7 +97,7 @@ Cross-BC contract (A and B are different business contexts):
 
 Public sync contracts use the namespace `App\{BC}\Application\{module}\…\Query\*QueryInterface`, `…\Command\**\*Command` or `…\Query\Dto\*Dto`. There is at least one module/aggregate segment below Application; QueryInterface lives directly in Query, and DTO directly in Query/Dto. `**` below Command means zero or more segments: a Command can live directly in Command or in a use-case subnamespace. The Command directory does not expose handlers, and an `Interface` suffix does not expose repositories or services.
 
-Public async contracts are `App\{BC}\Application\IntegrationEvent\**\*IntegrationEvent`, and their cross-BC consumers are `App\{BC}\Application\IntegrationEventSubscriber\*Subscriber`. For events, `**` means zero or more segments. A subscriber must live directly in `Application/IntegrationEventSubscriber`, matching the flat DI registration convention (§8.1 and §9.2); a subscriber in a subnamespace does not receive the cross-BC exception. Both the namespace and the class name suffix must match. A helper in IntegrationEvent or a Subscriber outside IntegrationEventSubscriber gains no public access. Sync contracts, integration events and subscribers are separated from ordinary Application. Outside remains separated from Domain so that even the same BC's Application and subscribers cannot use it (§6).
+Public async contracts are `App\{BC}\Application\IntegrationEvent\**\*IntegrationEvent`, and their cross-BC consumers are `App\{BC}\Application\IntegrationEventSubscriber\*Subscriber`. For events, `**` means zero or more segments. A subscriber must live directly in `Application/IntegrationEventSubscriber`, matching the flat DI registration convention (§8.1); a subscriber in a subnamespace does not receive the cross-BC exception. Both the namespace and the class name suffix must match. A helper in IntegrationEvent or a Subscriber outside IntegrationEventSubscriber gains no public access. Sync contracts, integration events and subscribers are separated from ordinary Application. Outside remains separated from Domain so that even the same BC's Application and subscribers cannot use it (§6).
 
 Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatically covered by the same contract. A new BC following the standard structure (§2–3) requires no additional layers, exceptions between pairs of contexts or registry entries. Files directly in `app/src/`, such as `Kernel.php`, are not BCs.
 
@@ -114,7 +114,7 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 - The port implementation lives in context A's Infrastructure layer. The adapter may invoke context B's public Command through `CommandBus` and read the result through context B's public `QueryInterface`.
 - In sync communication, the consuming context's Domain, Application and Ui do not import any classes from another BC. Details of the foreign contract remain in the Infrastructure adapter. The separate async exception applies only to integration event subscribers (§8.1).
 - The adapter does not invoke a foreign handler or repository.
-- Currently no use case writes synchronously in a foreign BC. Client owns memberships and invitations, User owns users. An invitation does not create an account: accounts are created only by OTP login (`LogInUserByEmailCommand`), and User sends the invitation notification asynchronously (§8.1).
+- In Demo, Client owns clients, memberships and invitations, while User owns user identity and authentication. These boundaries also apply to cross-BC orchestration.
 
 ## 5. CQRS-lite (team contract)
 
@@ -181,7 +181,7 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 - Backend and database treat timestamps as UTC. This also applies to `TIMESTAMP WITHOUT TIME ZONE` columns, which in the MVP mean "UTC wall time"; the application must explicitly normalize writes and reads to UTC.
 - Technical infrastructure timestamps are also UTC: EventLog, outbox publisher, and worker use `ClockInterface` and write UTC storage strings.
 - PostgreSQL is not the source of local application time. Current production timestamps must come from the application clock or explicit UTC in infrastructure.
-- User timezone is not stored in the DB in the MVP. The backend does not maintain user timezone preferences and does not convert timestamps to the local timezone in the domain model or read models.
+- The domain model and read models operate in UTC without conversion to the user's local timezone.
 - Local time presentation is the responsibility of the UI/browser.
 - Date ranges that are part of **explicit business input** are passed as domain values and validated in the domain; they are not replaced with `now()`. If such a range has local-time semantics, the UI sends the range to the backend already converted to UTC.
 
@@ -207,69 +207,47 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 - An integration event is used for asynchronous technical communication between modules/processes through the outbox. It is a public async contract of the publishing BC; in a foreign BC, only `Application/IntegrationEventSubscriber` following the convention in §4 may import it. Ordinary Application, Domain, Ui and Infrastructure do not import foreign events.
 - Integration events are serialized to JSON by Symfony Serializer. Preferred fields are primitives and simple serializable structures without custom normalizers.
 - `IntegrationEventPublisherInterface::publish()` does not dispatch the event in memory. The current `DbalOutboxPublisher` implementation writes a record to `shared.async_outbox`.
-- `DbalOutboxPublisher` assigns the technical `event_id`, stores `event_name` as the event class FQCN, JSON payload, and `created_at` from `ClockInterface` as a UTC storage string.
 - If a sync saga translates its own `DomainEvent` into its own `IntegrationEvent`, it does this in Application and uses `IntegrationEventPublisherInterface`.
 - If the goal of a sync saga reaction is async publish, the saga does not run `CommandBus`; it publishes the `IntegrationEvent` through the publisher.
-- Example: `Client/Application/ClientInvitation/Saga/ClientInvitationSaga` translates `ClientInvitationCreated` into `ClientInvitationCreatedIntegrationEvent` (invitation id, client and its name, email, role). The outbox write happens in the transaction that creates the invitation. The consumer is `User/Application/IntegrationEventSubscriber/SendClientInvitationNotificationSubscriber`, which sends one notification through User's own `UserNotificationSenderServiceInterface` port. The local `FileUserNotificationSenderService` implementation appends a JSON line to `var/notifications/user_notifications.jsonl` (`user_notifications.test.jsonl` in tests) and skips an identical line, which prevents a duplicate after the worker is interrupted between delivery and marking `processed` (§9.2).
+- Short example: `ClientInvitationSaga` in Client Application translates its own `ClientInvitationCreated` into its own `ClientInvitationCreatedIntegrationEvent` through the publisher; it does not call User directly. The [notification flow](platform.md#43-invitation-notifications) describes the consumer and delivery.
 - DI conventions:
   - sync sagas: `src/*/Application/**/Saga/*Saga.php` with the `app.saga` tag, called by the sync `EventBus`
   - async subscribers: `src/*/Application/IntegrationEventSubscriber/*Subscriber.php` with the `app.integration_event_subscriber` tag, called by the outbox worker
+- An async subscriber handler is a public `on*()` method with one typed parameter matching the concrete `IntegrationEvent`.
 
 ## 9. Transactions and flush (one point)
-- Flush/commit is in one place (central orchestration).
+- `CommandBus` owns the transaction: it runs the handler, performs one ORM flush, saves collected events to EventLog and dispatches them through the sync EventBus, then commits.
 - Repositories call `persist()`, not `flush()`.
-- `ClientInvitation::accept(userId)` checks invitation rules, changes its state and records `ClientInvitationAccepted`. Then `AcceptClientInvitationCommandHandler` reads the immutable client and role data through `ClientInvitationQueryInterface` while still holding the invitation lock, creates the membership through `ClientMemberFactory` and persists it through the repository in the same `CommandBus` transaction. A failure to create or persist the membership also rolls back invitation acceptance.
+- Aggregate changes, EventLog and outbox writes made in this transaction share commit/rollback. A failure before commit must not leave a partially persisted use case.
+- Effects outside the database (for example a file or HTTP session) are not covered by DB rollback. Ui may expose the result of a committed change only after `CommandBus` returns.
 - Exceptions only when strongly justified and described in code (preferred in SharedKernel, not in a BC).
-- Client onboarding through `OnboardClientCommand` stores the `Client` and the first invitation with role `admin` in one `CommandBus` transaction. `ClientInvitationSaga` writes the notification to the outbox in the same transaction; a failure before commit rolls back the client, invitation, EventLog and outbox. `OnboardClientIntegrationTest` forces a failure after the real ORM flush and outbox write and checks that no partial onboarding remains. `CreateClientCommand` and `CreateClientMemberCommand` are fixture/test tools without a production HTTP route; the administrator membership is created by accepting the invitation.
+- Concrete atomicity boundaries for onboarding and acceptance: [platform.md §4](platform.md#4-flows-and-implementation).
 
 ### 9.1 EventBus / Subscribers (hard rule)
 - Subscribers (including `*Saga.php`) do not modify ORM entities directly.
-- If a reaction to an event requires a database write or a domain state change, the subscriber runs a dedicated Command.
+- If a reaction to an event requires a domain state change, the subscriber runs a dedicated Command. Technical integration event writes to the outbox go through the publisher (§8.1), under the DBAL exception (§5.3).
 - This keeps the event mechanism in-memory and ready for a future switch to async/outbox without changing domain logic.
 
-### 9.2 Outbox and async consumption
-- `shared.async_outbox` is a technical durable queue/state store table for integration events.
-- The CLI worker `app:process-outbox` processes the outbox by polling. Options:
-  - `--limit` - maximum number of records claimed in one batch, default 50
-  - `--once` - process one batch and exit
-  - `--sleep` - seconds to sleep between empty runs, default 5
-- The worker claims a pending batch with an atomic `UPDATE ... FROM (SELECT ... FOR UPDATE SKIP LOCKED) ... RETURNING`.
-- An outbox record is a claim candidate when `processed_at IS NULL`, `attempts < 5`, and there is no active claim or the claim has expired.
-- Lease TTL is 5 minutes. After lease expiry, another worker may reclaim the record.
-- `attempts` is incremented when the outbox is claimed. On error, the worker stores a shortened `last_error`, clears the outbox claim, and leaves the record for retry as long as `attempts < 5`.
-- After 5 attempts are exhausted, the record is not claimed automatically anymore. The MVP has no separate dead letter queue.
-- The worker denormalizes the event based on `event_name`, checks that it implements `IntegrationEvent`, and looks for matching handlers in tagged async subscribers.
-- An async subscriber is a service tagged with `app.integration_event_subscriber`. The autoload convention covers `src/*/Application/IntegrationEventSubscriber/*Subscriber.php`.
-- An async subscriber handler is a public `on*()` method with one typed parameter matching the concrete `IntegrationEvent`.
-- `shared.async_consumption` stores claims and idempotency per `(event_id, subscriber, handler_method)`.
-- The worker uses a claim-before-side-effect model:
-  - before calling the handler, it tries to atomically insert or take over an `async_consumption` record with status `processing`
-  - if the record has status `processed`, the handler is skipped
-  - if the claim belongs to another active worker, the outbox receives an error and returns to retry
-  - after handler success, the worker marks consumption as `processed` only if `claimed_by` ownership is preserved
-  - after a handler exception, the worker removes its own consumption claim and releases the outbox for retry
-- The outbox is marked as `processed` only after all matching handlers succeed and only if ownership (`claimed_by`) is preserved.
+### 9.2 Outbox and async consumption guarantees
+- `shared.async_outbox` is a durable integration event store. Publishing inside a `CommandBus` transaction is atomic with the domain change (§9); a consumer processes committed records in a separate process.
+- Claiming a record must be atomic. A lease allows abandoned work to be reclaimed, and acknowledging processing requires retained ownership (`claimed_by`).
+- Consumption uses claim-before-side-effect. `shared.async_consumption` identifies execution by `(event_id, subscriber, handler_method)`; a handler marked as `processed` is skipped. Another worker's active claim prevents concurrent execution of the same handler.
+- The outbox is marked as `processed` only after all matching handlers succeed and while ownership is retained. A handler failure releases its own claim and allows retry within the runtime policy.
 - An async subscriber may run `CommandBus`; this is a separate transaction in the worker process.
-- Idempotency in `async_consumption` protects against re-running a handler marked as `processed`. A handler that performs external side effects should still be designed as business-idempotent in case the process stops after the side effect and before marking `processed`.
-- Known MVP limitations:
-  - no message broker
-  - no Redis
-  - no `LISTEN/NOTIFY`
-  - no dead letter queue
-  - the worker uses polling instead of a wake-up signal
+- There is no exactly-once guarantee for external effects. A process interrupted after the effect but before marking `processed` may cause execution to repeat. The handler must provide business idempotency; the consumption record does not replace this protection.
+- Retry/lease parameters, polling and current implementation limitations: [outbox runtime](platform.md#44-outbox-runtime).
 
 ### 9.3 Migrations
 - Migrations belong to the schema owner and are stored in `app/src/{BC}/Infrastructure/Resource/Migrations/`; migrations for shared mechanisms belong to `SharedKernel`.
 - Migration namespaces are registered centrally in the Doctrine Migrations configuration.
-- Diff generation is targeted at a context namespace, but running `doctrine:migrations:migrate` covers the shared set of all registered pending migrations. The target names `migrations-migrate-client` and `migrations-migrate-user` do not mean that execution is isolated to a single BC.
+- The scope of migration generation and execution through the Makefile is described in the [README](../README.md#dev-setup).
 
-### 9.4 Pessimistic row locking for invitations
-- `accept`, `reject` and `revoke` run in one short request transaction opened by `CommandBus`. The repository loads `ClientInvitation` through ORM with `LockMode::PESSIMISTIC_WRITE` (`SELECT ... FOR UPDATE`) as the aggregate's first load into the UnitOfWork. The aggregate has no technical version.
-- The first-load requirement matters for `getForClient()` and `getPendingForClientAndEmail()`: DQL with `setLockMode()` locks the row but does not refresh an entity already in the identity map (unlike the locking `find()` in `get()`). Adding an earlier ORM read requires reassessing state freshness and the platform revoke contract; acquiring the lock alone does not guarantee that the object is refreshed.
-- The row lock lasts until commit/rollback. A concurrent request waits and sees the committed state after acquiring the lock. The existing `assertPending()` rule refuses a disallowed transition with `ClientInvitationNotPendingException`, mapped to `409 {"error": "Invitation is not pending"}`.
-- Platform revoke uses one locking ORM query to load an invitation by client, normalized email and `pending` status. If the row no longer matches after waiting, the missing pending invitation results in 404, just as after an earlier accept/reject/revoke.
-- The partial unique index `(client_id, email) WHERE status = 'pending'` still protects concurrent invitation creation: there is no row to lock before INSERT. The unique membership constraint `(client_id, user_id)` remains an additional safeguard. Handling `UniqueConstraintViolationException` during accept is a defensive fallback; this HTTP mapping branch has no dedicated test. Currently, only the fixture/test `CreateClientMemberCommand` creates memberships outside accept.
-- `ClientInvitationConcurrencyIntegrationTest` proves the lock for all three repository reads used for mutations: a second independent connection executes `FOR UPDATE NOWAIT` and receives SQLSTATE `55P03` (`lock_not_available`); rollback releases the lock. Domain tests and Behat protect transition rules and HTTP contracts.
+### 9.4 Aggregate locking and state freshness
+- Mutations requiring serialized state transitions must read a fresh aggregate under a lock in a short `CommandBus` transaction. In Demo, `ClientInvitationRepository` uses ORM `LockMode::PESSIMISTIC_WRITE` (`SELECT ... FOR UPDATE`) as the aggregate's first load into the UnitOfWork.
+- The lock lasts until commit/rollback. A concurrent operation waits; after acquiring the lock, the domain rule evaluates committed state. The lock itself does not replace transition validation.
+- Beware of Doctrine's identity map: DQL with `setLockMode()` locks the row but does not refresh an entity already in the UnitOfWork. This applies to `getForClient()` and `getPendingForClientAndEmail()`, unlike the locking `find()` in `get()`. An earlier ORM read requires reassessing state freshness and the operation's contract; acquiring the lock alone does not guarantee that the object is refreshed.
+- Locking an existing row does not protect concurrent creation: there is no row to lock before INSERT. DB uniqueness constraints remain a required safeguard for invariants alongside domain validation.
+- Application to invitations, indexes and HTTP consequences: [platform.md §4.2](platform.md#42-invitation-acceptance-and-concurrency).
 
 ## 10. DI and configuration
 - `app/config/services.yaml` is the root service configuration: it imports convention-based autoloading and each module's Infrastructure configuration.
@@ -279,49 +257,23 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 - Do not use `public: true` only for tests.
 
 ## 11. Platform routes (`platform_` convention)
-- A route name with the `platform_` prefix is reserved for platform-only endpoints.
-- Platform routes:
-  - do not require `active_client_id` in the session.
-  - `TenantGuardSubscriber`: skips tenant checks for route names `platform_*` (after cross-origin checks).
-  - `PlatformAdminGuardSubscriber`: requires `session.is_platform_admin === true`; otherwise 403.
-- The `session.is_platform_admin` flag is set after successful login (`PlatformAdminOnLoginSubscriber`) based on the `app.platform_admin_emails` allowlist.
-- The architecture test (`PlatformRouteNamingTest`) ensures that no route contains the substring "platform" without the `platform_` prefix.
+- A route name with the `platform_` prefix is reserved for platform endpoints. No other route may contain the substring `platform`; `PlatformRouteNamingTest` enforces the convention.
+- Platform privileges are separate from client membership and role. Platform routes require a platform administrator but do not require an active client (`active_client_id`).
+- `TenantGuardSubscriber` and `PlatformAdminGuardSubscriber` enforce this separation. The platform exemption from tenant checks does not bypass cross-origin checks.
+- Access to tenant routes is explicitly configured; no matching rule means refusal (default deny).
+- Session states, privilege source and check order: [platform.md §2](platform.md#2-sessions-and-access-control).
 
-Session states and active client selection:
-- Anonymous (no `user_id`): only routes on the `TenantGuardSubscriber` allowlist are available (`api_auth_otp_request`, `api_auth_otp_verify`, `/api/health`). Other guarded routes return 401, `platform_*` routes return 403.
-- Logged in without an active client: a successful `POST /api/auth/otp/verify` migrates the session id, sets `user_id` and `is_platform_admin`, and removes any `active_client_id` left from an earlier login in the same session. Login never selects a client and does not require a membership. Routes in `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` (`api_me_clients_list`, `api_session_active_client_select`, `api_me_invitations_list`, `api_invitations_accept`, `api_invitations_reject`) and, for a platform admin, `platform_*` routes are available. A tenant route returns `403 {"error": "active_client_required"}`.
-- Logged in with an active client: `POST /api/session/active-client` sets `active_client_id` only for an active membership of the user and migrates the session id. A later call switches the client; a refused selection leaves the session state unchanged. A successful `POST /api/invitations/{invitationId}/accept` also makes the invitation's client active and migrates the session, but only after commit; a refused accept does not change the session. Tenant routes go through the remaining guard checks (§11.1).
-
-### 11.1 Current HTTP/API surface
-- Application routing loads controllers from `app/src/**/Ui/Http/Api/` and adds the `/api` prefix.
-- The current HTTP controllers return JSON. The repository contains no runtime browser application, so such a consumer and its contracts are not inferred from external materials.
+### 11.1 HTTP and routing contracts
 - The public endpoint contract includes the path, HTTP method, input, response status, and JSON payload. Changing any of these elements changes the public HTTP surface and requires explicit task scope and behavior test updates.
 - The route name is an internal routing and security contract, not part of the public HTTP contract. New or changed route names require checking the `platform_` prefix, the route access requirements configuration and allowlist in `TenantGuardSubscriber`, and subscribers that react to a specific route.
-- After accounting for platform and allowlist exceptions, `TenantGuardSubscriber` requires the `user_id` of an existing, non-blocked user. Routes in `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` do not require an active client. For the others, the guard requires `active_client_id`, a route `{clientId}` matching the active client, and an active membership, and only permits routes in `ADMIN_REQUIRED_ROUTE_NAMES`, requiring the client administrator role. Other routes covered by the guard are denied access. Adding a route for a regular member requires extending the configuration and handling of access requirements in the guard.
-- Guard denials return `{"error": "Access denied"}` with 401 or 403. The only distinguishable case is a tenant route without an active client: `403 {"error": "active_client_required"}`.
-- Onboarding and administrator invitations (`Client/Ui/Http/Api/ClientController`, `PlatformAdminInvitationController`). All three routes use the `platform_` prefix, require a platform administrator and do not require an active client; anonymous callers and users without platform privileges receive `403 {"error": "Access denied"}`. Invalid input → `400 {"errors": [{"field": "...", "message": "..."}]}`. Email addresses are normalized by `Email`.
-  - `POST /api/clients` (`platform_clients_create`) with `{"name": "...", "adminEmail": "...", "description": "..."}` → `201 {"id": "<client uuid>"}`. `name` and a valid `adminEmail` are required, `description` is optional. A missing `adminEmail`, empty or invalid address → 400 without creating a client. `OnboardClientCommand` atomically creates the client and a pending invitation with role `admin` (§9), without a user account or membership. The worker sends the notification; the invitee logs in through OTP and uses the list and accept/reject flow from 5.2. Acceptance grants role `admin` and sets the active client after commit.
-  - `POST /api/clients/{clientId}/admin-invitations` (`platform_client_admin_invitations_create`) with `{"email": "..."}` → `201 {"id": "<invitation uuid>"}`. Creates an invitation with role `admin` to an existing client, including after rejection of the first invitation or loss of administrators. A non-existent client → `404 {"error": "Not found"}`; a pending invitation for this client and email, regardless of role → `409 {"error": "A pending invitation for this email already exists"}`; an existing active or suspended membership → `409 {"error": "User is already a member of this client"}`. The shared invitation factory rules remain the same as in the tenant flow; the input does not specify a role.
-  - `POST /api/clients/{clientId}/admin-invitations/revoke` (`platform_client_admin_invitations_revoke`) with `{"email": "..."}` → 204 with no body. Revokes only a pending invitation with role `admin` for the specified client and email. No pending invitation (also after an earlier accept/reject/revoke) → `404 {"error": "Not found"}`; a pending invitation with role `user` → `403 {"error": "Platform admin can revoke only invitations with role admin"}`. A revoked invitation cannot be accepted later. No invitation id or separate platform listing is needed. A `{clientId}` that is not a lowercase UUID → 404 from routing for both admin-invitations routes.
-  - Invitations with role `admin` can be created and revoked only through the platform flow. Tenant routes still allow creating and revoking only invitations with role `user`. Recovery does not enforce keeping at least one active administrator.
-- Logged-in session endpoints (`User/Ui/Http/Api/ActiveClientController`):
-  - `GET /api/me/clients` (`api_me_clients_list`) → 200 with the user's active memberships: `[{"clientId": "...", "clientName": "...", "roles": ["admin"]}]`. Suspended memberships are not returned; a user without memberships gets `[]`. The API never selects a client automatically, even for a one-element list.
-  - `POST /api/session/active-client` (`api_session_active_client_select`) with `{"clientId": "<uuid>"}` → 204 with no body; the session stores the lowercase UUID, matching the ids from `GET /api/me/clients`. A client without an active membership of the user (foreign, suspended, non-existent) → `403 {"error": "Access denied"}`; a `clientId` that is not a UUID → 400 with validation errors.
-  - `POST /api/auth/otp/verify` keeps its `{"ok": true}` / `{"ok": false}` contract.
-- Client invitations (`Client/Ui/Http/Api/ClientInvitationController`). In production, a membership is created only by accepting an invitation; `CreateClientMemberCommand` has no HTTP route and serves Behat fixtures.
-  - `POST /api/clients/{clientId}/invitations` (`api_client_invitations_create`, `ADMIN_REQUIRED_ROUTE_NAMES`) with `{"email": "...", "role": "user"}` → 201 `{"id": "<uuid>"}`. A role other than `user` → `403 {"error": "Client admin can invite only with role user"}`; a pending invitation for this client and email → `409 {"error": "A pending invitation for this email already exists"}`; a person with a membership in the client, active or suspended → `409 {"error": "User is already a member of this client"}`; invalid input → 400. The invitation does not create a user account.
-  - `POST /api/clients/{clientId}/invitations/{invitationId}/revoke` (`api_client_invitations_revoke`, `ADMIN_REQUIRED_ROUTE_NAMES`) → 204. A non-existent invitation or one of another client → `404 {"error": "Not found"}`; an invitation with role `admin` → `403 {"error": "Client admin can revoke only invitations with role user"}`; a status other than `pending` → `409 {"error": "Invitation is not pending"}`.
-  - `GET /api/me/invitations` (`api_me_invitations_list`) → 200 `[{"id": "...", "clientId": "...", "clientName": "...", "role": "user", "createdAt": "..."}]`: only pending invitations addressed to the logged-in user's email.
-  - `POST /api/invitations/{invitationId}/accept` (`api_invitations_accept`) → 204. In one transaction it stores `accepted` and creates the membership with the invitation's role through `ClientMemberFactory`; after commit it sets `active_client_id` (§11). A non-existent invitation or one addressed to another email → `404 {"error": "Not found"}`; a status other than `pending` → `409 {"error": "Invitation is not pending"}`; a membership that exists at accept time → `409 {"error": "User is already a member of this client"}`, the invitation stays `pending` and the admin can revoke it.
-  - `POST /api/invitations/{invitationId}/reject` (`api_invitations_reject`) → 204, without a membership; the same 404/409 refusals as accept.
-  - Concurrent accept, reject and tenant revoke are serialized by a row lock; a status other than `pending` after acquiring the lock → `409 {"error": "Invitation is not pending"}` (§9.4). An `{invitationId}` that is not a lowercase UUID → 404 from routing.
+- Contract catalogue: [platform.md §3](platform.md#3-httpapi-contracts).
 
 ## 12. Test strategy (minimum)
 - Domain unit: test aggregate behavior with FakeOutside and deterministic time.
 - Integration: infrastructure (DB, DBAL query, event log, mapping) has meaningful automated test coverage. We do not require a separate mapping test for every aggregate if the mapping is already actually covered by Behat or another integration test that goes through persist/flush/load. Add a dedicated mapping test only when the mapping has no natural coverage or is non-trivial enough that a separate test gives real value.
 - E2E (Behat): at least one "happy path" scenario through UI -> Application -> Domain -> Infrastructure.
 
-Tests in `app/tests/Architecture/BoundedContextDependenciesTest.php` run Deptrac against a temporary copy of the sources with the unchanged `app/deptrac.php`. They check existing adapters, allowed Infrastructure access to foreign Query/Command/DTO contracts and subscriber access to foreign IntegrationEvent contracts, rejection of other cross-BC dependencies and names outside the convention, and Outside and SharedKernel restrictions. An artificially added BC automatically receives the same contract: it can expose and consume public contracts, while forbidden dependencies are rejected. Tests, `make deptrac-ci` and `composer deptrac:ci` use `--report-uncovered --fail-on-uncovered`, so uncovered dependencies cause the check to fail.
+Tests in `app/tests/Architecture/BoundedContextDependenciesTest.php` run Deptrac against a temporary copy of the sources with the unchanged `app/deptrac.php`. They check existing adapters, allowed Infrastructure access to foreign Query/Command/DTO contracts and subscriber access to foreign IntegrationEvent contracts, rejection of other cross-BC dependencies and names outside the convention, and Outside and SharedKernel restrictions. An artificially added BC automatically receives the same contract: it can expose and consume public contracts, while forbidden dependencies are rejected. Uncovered dependencies must fail the Deptrac check (`--report-uncovered --fail-on-uncovered`).
 
 ### 12.1 Behat conventions (KISS)
 - Scenarios use aliases (readable names), not raw UUIDs.
@@ -332,21 +284,3 @@ Tests in `app/tests/Architecture/BoundedContextDependenciesTest.php` run Deptrac
 - For shared "Given" steps, use:
   - `FixtureContext` (shared state arrangement steps)
   - `FixtureRegistry` (alias -> fixture/Id mapping)
-
-## 13. Quality gates (before merge)
-Use commands from the `Makefile` in the root directory.
-- `make cs-check`
-- `make phpstan`
-- `make deptrac-ci`
-- `make test`
-- `make behat` (if UI / E2E flow is affected)
-
-Run the gates selected for the scope one at a time, in the order above, waiting for the complete result and exit code before starting the next one. After a failure, stop the sequence, fix the problem, and rerun the appropriate gates. `make qa` runs only `cs-check`, `phpstan`, and `deptrac-ci` sequentially; it does not replace `make test` or `make behat`.
-
-For documentation-only changes, unless the task requires more, the minimum check is `git diff --check`. The repository defines no separate documentation validation target.
-
-## 14. Working flow (how we work)
-1. Discuss the business case and BC boundaries.
-2. Write down decisions and consequences in a short note.
-3. Turn the note into a backlog of implementation steps.
-4. At the end, the prompt for the CLI agent must implement exactly the agreed decisions and pass quality gates.

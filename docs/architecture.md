@@ -1,6 +1,6 @@
 # Architecture
 
-Ten dokument jest kanonicznym source of truth. Wersja angielska: [architecture.en.md](architecture.en.md).
+Ten dokument jest kanonicznym źródłem reguł, wzorców, ograniczeń i gwarancji architektonicznych. Pełne tłumaczenie: [architecture.en.md](architecture.en.md). Aktualne zachowanie platformy, kontrakty HTTP i szczegóły runtime opisuje [platform.md](platform.md) (po angielsku). Quality gates i workflow: [instrukcje dla agentów i autorów zmian](instructions-for-agents.md).
 
 ## 1. Cel i priorytety
 - KISS ponad “spryt”.
@@ -97,7 +97,7 @@ Kontrakt cross-BC (A i B to różne konteksty biznesowe):
 
 Publiczne kontrakty sync mają namespace `App\{BC}\Application\{moduł}\…\Query\*QueryInterface`, `…\Command\**\*Command` lub `…\Query\Dto\*Dto`. Pod Application jest co najmniej jeden segment modułu/agregatu; QueryInterface leży bezpośrednio w Query, a DTO bezpośrednio w Query/Dto. `**` pod Command oznacza zero lub więcej segmentów: Command może leżeć bezpośrednio w Command albo w podnamespace przypadku użycia. Katalog Command nie udostępnia handlerów, a sufiks `Interface` nie udostępnia repozytoriów i serwisów.
 
-Publiczne kontrakty async to `App\{BC}\Application\IntegrationEvent\**\*IntegrationEvent`, a ich konsumenci cross-BC to `App\{BC}\Application\IntegrationEventSubscriber\*Subscriber`. W przypadku eventów `**` oznacza zero lub więcej segmentów. Subscriber musi leżeć bezpośrednio w `Application/IntegrationEventSubscriber`, zgodnie z płaską konwencją rejestracji DI (§8.1 i §9.2); subscriber w podnamespace nie otrzymuje wyjątku cross-BC. Wymagane są jednocześnie właściwy namespace i sufiks nazwy klasy. Helper w katalogu IntegrationEvent ani Subscriber poza IntegrationEventSubscriber nie uzyskuje publicznego dostępu. Kontrakty sync, integration events i subscribery są wydzielone z ogólnego Application. Outside pozostaje wydzielone z Domain, aby także własne Application i subscribery nie mogły go używać (§6).
+Publiczne kontrakty async to `App\{BC}\Application\IntegrationEvent\**\*IntegrationEvent`, a ich konsumenci cross-BC to `App\{BC}\Application\IntegrationEventSubscriber\*Subscriber`. W przypadku eventów `**` oznacza zero lub więcej segmentów. Subscriber musi leżeć bezpośrednio w `Application/IntegrationEventSubscriber`, zgodnie z płaską konwencją rejestracji DI (§8.1); subscriber w podnamespace nie otrzymuje wyjątku cross-BC. Wymagane są jednocześnie właściwy namespace i sufiks nazwy klasy. Helper w katalogu IntegrationEvent ani Subscriber poza IntegrationEventSubscriber nie uzyskuje publicznego dostępu. Kontrakty sync, integration events i subscribery są wydzielone z ogólnego Application. Outside pozostaje wydzielone z Domain, aby także własne Application i subscribery nie mogły go używać (§6).
 
 Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, jest automatycznie objęty tym samym kontraktem. Nowy BC zgodny ze standardowym układem (§2–3) nie wymaga dopisywania warstw, wyjątków między parami kontekstów ani wpisu do rejestru. Pliki bezpośrednio w `app/src/`, takie jak `Kernel.php`, nie są BC.
 
@@ -114,7 +114,7 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 - Implementacja tego portu leży w Infrastructure kontekstu A. Adapter może wywołać publiczny Command kontekstu B przez `CommandBus` i odczytać wynik przez publiczny `QueryInterface` kontekstu B.
 - W komunikacji sync Domain, Application i Ui kontekstu konsumującego nie importują żadnych klas obcego BC. Szczegóły obcego kontraktu pozostają w adapterze Infrastructure. Osobny wyjątek async dotyczy wyłącznie subscriberów integration events (§8.1).
 - Adapter nie wywołuje obcego handlera ani repozytorium.
-- Aktualnie żaden przypadek użycia nie zapisuje synchronicznie w obcym BC. Client jest właścicielem członkostwa i zaproszeń, User — użytkownika. Zaproszenie nie tworzy konta: konto powstaje wyłącznie przy logowaniu OTP (`LogInUserByEmailCommand`), a powiadomienie o zaproszeniu User wysyła asynchronicznie (§8.1).
+- W Demo Client jest właścicielem klientów, członkostw i zaproszeń, a User — tożsamości użytkownika i uwierzytelniania. Te granice obowiązują także przy orkiestracji cross-BC.
 
 ## 5. CQRS-lite (kontrakt zespołowy)
 
@@ -180,7 +180,7 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 - Backend i baza danych traktują timestampy jako UTC. Dotyczy to także kolumn `TIMESTAMP WITHOUT TIME ZONE`, które w MVP oznaczają "UTC wall time"; aplikacja ma jawnie normalizować zapis i odczyt do UTC.
 - Techniczne timestampy infrastruktury też są UTC: EventLog, outbox publisher i worker używają `ClockInterface` oraz zapisują storage string UTC.
 - PostgreSQL nie jest źródłem lokalnego czasu aplikacji. Bieżące timestampy produkcyjne mają pochodzić z aplikacyjnego clocka albo jawnego UTC w infrastrukturze.
-- Timezone użytkownika nie jest przechowywany w DB na MVP. Backend nie utrzymuje preferencji strefy czasowej użytkownika i nie przelicza timestampów na lokalną strefę w modelu domenowym ani read modelach.
+- Model domenowy i read modele operują na UTC, bez przeliczania na lokalną strefę użytkownika.
 - Prezentacja lokalnego czasu jest odpowiedzialnością UI/przeglądarki.
 - Zakresy dat będące częścią **jawnego inputu biznesowego** są przekazywane jako wartości domenowe i walidowane w domenie; nie są zastępowane przez `now()`. Jeśli taki zakres ma semantykę lokalną, UI wysyła do backendu zakres już przeliczony na UTC.
 
@@ -206,68 +206,47 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 - Integration event służy do asynchronicznej komunikacji technicznej między modułami/procesami przez outbox. Jest publicznym kontraktem async BC publikującego; w obcym BC może go importować wyłącznie `Application/IntegrationEventSubscriber` zgodny z konwencją z §4. Zwykłe Application, Domain, Ui i Infrastructure nie importują obcego eventu.
 - Integration event jest serializowany do JSON przez Symfony Serializer. Preferowane pola to prymitywy i proste struktury serializowalne bez custom normalizerów.
 - `IntegrationEventPublisherInterface::publish()` nie dispatchuje eventu in-memory. Aktualna implementacja `DbalOutboxPublisher` zapisuje rekord do `shared.async_outbox`.
-- `DbalOutboxPublisher` nadaje techniczne `event_id`, zapisuje `event_name` jako FQCN klasy eventu, payload JSON oraz `created_at` z `ClockInterface` jako UTC storage string.
 - Jeśli sync saga tłumaczy własny `DomainEvent` na własny `IntegrationEvent`, robi to w Application i używa `IntegrationEventPublisherInterface`.
 - Jeśli celem reakcji sync sagi jest async publish, saga nie uruchamia `CommandBus`; publikuje `IntegrationEvent` przez publisher.
-- Przykład: `Client/Application/ClientInvitation/Saga/ClientInvitationSaga` tłumaczy `ClientInvitationCreated` na `ClientInvitationCreatedIntegrationEvent` (id zaproszenia, klient i jego nazwa, e-mail, rola). Zapis do outboxa następuje w transakcji tworzącej zaproszenie. Konsumentem jest `User/Application/IntegrationEventSubscriber/SendClientInvitationNotificationSubscriber`, który wysyła jedno powiadomienie przez własny port User `UserNotificationSenderServiceInterface`. Lokalna implementacja `FileUserNotificationSenderService` dopisuje linię JSON do `var/notifications/user_notifications.jsonl` (w testach `user_notifications.test.jsonl`) i pomija identyczną linię, co chroni przed duplikatem po przerwaniu workera między wysyłką a oznaczeniem `processed` (§9.2).
+- Krótki przykład: `ClientInvitationSaga` w Application Client tłumaczy własny `ClientInvitationCreated` na własny `ClientInvitationCreatedIntegrationEvent` przez publisher; nie wywołuje bezpośrednio User. [Flow powiadomienia](platform.md#43-invitation-notifications) opisuje konsumenta i dostarczenie.
 - Konwencje DI:
   - sagi sync: `src/*/Application/**/Saga/*Saga.php` z tagiem `app.saga`, wywoływane przez sync `EventBus`
   - async subscribery: `src/*/Application/IntegrationEventSubscriber/*Subscriber.php` z tagiem `app.integration_event_subscriber`, wywoływane przez worker outboxa
+- Handler async subscribera to publiczna metoda `on*()` z jednym typowanym parametrem zgodnym z konkretnym `IntegrationEvent`.
 
 ## 9. Transakcje i flush (jeden punkt)
-- Flush/commit jest w jednym miejscu (centralna orkiestracja).
+- `CommandBus` jest właścicielem transakcji: uruchamia handler, wykonuje jeden ORM flush, zapisuje zebrane eventy do EventLog i dispatchuje je przez sync EventBus, a następnie wykonuje commit.
 - Repozytoria robią `persist()`, nie robią `flush()`.
-- `ClientInvitation::accept(userId)` sprawdza reguły zaproszenia, zmienia jego stan i rejestruje `ClientInvitationAccepted`. Następnie `AcceptClientInvitationCommandHandler` odczytuje niezmienne dane klienta i roli przez `ClientInvitationQueryInterface`, przy nadal utrzymywanej blokadzie zaproszenia, tworzy członkostwo przez `ClientMemberFactory` i zapisuje je przez repozytorium w tej samej transakcji `CommandBus`. Błąd tworzenia lub zapisu członkostwa wycofuje również akceptację zaproszenia.
+- Zmiany agregatów, EventLog i zapisy outboxa wykonywane w tej transakcji współdzielą commit/rollback. Błąd przed commit nie może pozostawić częściowego zapisu przypadku użycia.
+- Efekty poza bazą (np. plik lub sesja HTTP) nie są objęte rollbackiem DB. Ui może udostępnić wynik zatwierdzonej zmiany dopiero po powrocie z `CommandBus`.
 - Wyjątki tylko gdy są twardo uzasadnione i opisane w kodzie (preferowane w SharedKernel, nie w BC).
-- Onboarding klienta przez `OnboardClientCommand` zapisuje `Client` i pierwsze zaproszenie z rolą `admin` w jednej transakcji `CommandBus`. `ClientInvitationSaga` zapisuje powiadomienie do outboxa w tej samej transakcji; błąd przed commit wycofuje klienta, zaproszenie, EventLog i outbox. `OnboardClientIntegrationTest` wymusza błąd po rzeczywistym flushu ORM i zapisie outboxa oraz sprawdza brak częściowego onboardingu. `CreateClientCommand` i `CreateClientMemberCommand` są narzędziami fixture/testów, bez produkcyjnej trasy HTTP; członkostwo administratora powstaje przez akceptację zaproszenia.
+- Konkretne granice atomowości onboardingu i akceptacji: [platform.md §4](platform.md#4-flows-and-implementation).
+
 ### 9.1 EventBus / Subscribery (twarda reguła)
 - Subscribery (w tym `*Saga.php`) nie modyfikują encji ORM bezpośrednio.
-- Jeśli reakcja na event wymaga zapisu do bazy lub zmiany stanu domeny, subscriber uruchamia dedykowany Command.
+- Jeśli reakcja na event wymaga zmiany stanu domeny, subscriber uruchamia dedykowany Command. Techniczny zapis integration eventu do outboxa odbywa się przez publisher (§8.1), zgodnie z wyjątkiem DBAL (§5.3).
 - Dzięki temu mechanizm eventów pozostaje in-memory i gotowy do przyszłego przełączenia na async/outbox bez zmiany logiki domeny.
 
-### 9.2 Outbox i async consumption
-- `shared.async_outbox` jest techniczną tabelą durable queue/state store dla integration events.
-- Worker CLI `app:process-outbox` przetwarza outbox pollingiem. Opcje:
-  - `--limit` — maksymalna liczba rekordów claimowanych w jednym batchu, domyślnie 50
-  - `--once` — przetwarza jeden batch i kończy
-  - `--sleep` — liczba sekund snu między pustymi przebiegami, domyślnie 5
-- Worker claimuje pending batch atomowym `UPDATE ... FROM (SELECT ... FOR UPDATE SKIP LOCKED) ... RETURNING`.
-- Rekord outboxa jest kandydatem do claimu, gdy `processed_at IS NULL`, `attempts < 5` oraz nie ma aktywnego claimu albo claim wygasł.
-- Lease TTL wynosi 5 minut. Po wygaśnięciu lease inny worker może przeclaimować rekord.
-- `attempts` jest zwiększane przy claimie outboxa. Po błędzie worker zapisuje skrócony `last_error`, czyści claim outboxa i zostawia rekord do retry, dopóki `attempts < 5`.
-- Po wyczerpaniu 5 prób rekord nie jest dalej claimowany automatycznie. MVP nie ma osobnej dead letter queue.
-- Worker denormalizuje event na podstawie `event_name`, sprawdza implementację `IntegrationEvent` i szuka pasujących handlerów w tagowanych async subscriberach.
-- Async subscriber to serwis z tagiem `app.integration_event_subscriber`. Konwencja autoload obejmuje `src/*/Application/IntegrationEventSubscriber/*Subscriber.php`.
-- Handler async subscribera to publiczna metoda `on*()` z jednym typowanym parametrem zgodnym z konkretnym `IntegrationEvent`.
-- `shared.async_consumption` jest magazynem claimu i idempotency per `(event_id, subscriber, handler_method)`.
-- Worker stosuje model claim-before-side-effect:
-  - przed wywołaniem handlera próbuje atomowo wstawić albo przejąć rekord `async_consumption` ze statusem `processing`
-  - jeśli rekord ma status `processed`, handler jest pomijany
-  - jeśli claim należy do innego aktywnego workera, outbox dostaje błąd i wraca do retry
-  - po sukcesie handlera worker oznacza consumption jako `processed` tylko przy zachowanym `claimed_by`
-  - po wyjątku handlera worker usuwa własny claim consumption i zwalnia outbox do retry
-- Outbox jest oznaczany jako `processed` dopiero po sukcesie wszystkich pasujących handlerów i tylko przy zachowanym ownership (`claimed_by`).
+### 9.2 Outbox i gwarancje konsumpcji async
+- `shared.async_outbox` jest trwałym magazynem integration events. Publikacja w transakcji `CommandBus` jest atomowa ze zmianą domenową (§9); konsument przetwarza zatwierdzone rekordy w osobnym procesie.
+- Claim rekordu musi być atomowy. Lease pozwala przejąć porzuconą pracę, a potwierdzenie przetworzenia wymaga zachowania ownership (`claimed_by`).
+- Konsumpcja stosuje claim-before-side-effect. `shared.async_consumption` identyfikuje wykonanie przez `(event_id, subscriber, handler_method)`; handler oznaczony jako `processed` jest pomijany. Aktywny claim innego workera nie pozwala na równoległe wykonanie tego samego handlera.
+- Outbox jest oznaczany jako `processed` dopiero po sukcesie wszystkich pasujących handlerów i przy zachowanym ownership. Błąd handlera zwalnia jego własny claim i pozwala na retry w granicach polityki runtime.
 - Async subscriber może uruchomić `CommandBus`; jest to osobna transakcja procesu workera.
-- Idempotency w `async_consumption` chroni przed ponownym wykonaniem handlera oznaczonego jako `processed`. Handler, który wykonuje zewnętrzne side effecty, nadal powinien być projektowany idempotentnie biznesowo na wypadek przerwania procesu po side effekcie, a przed oznaczeniem `processed`.
-- Świadome ograniczenia MVP:
-  - brak brokera wiadomości
-  - brak Redis
-  - brak `LISTEN/NOTIFY`
-  - brak dead letter queue
-  - worker używa polling zamiast sygnału pobudki
+- Nie ma gwarancji exactly-once dla zewnętrznych efektów. Przerwanie procesu po efekcie, a przed oznaczeniem `processed`, może spowodować ponowne wykonanie. Handler musi zapewniać idempotencję biznesową; rejestr konsumpcji nie zastępuje tej ochrony.
+- Parametry retry/lease, polling i ograniczenia bieżącej implementacji: [runtime outboxa](platform.md#44-outbox-runtime).
 
 ### 9.3 Migracje
 - Migracje należą do właściciela schematu i są przechowywane w `app/src/{BC}/Infrastructure/Resource/Migrations/`; migracje mechanizmów współdzielonych należą do `SharedKernel`.
 - Namespace'y migracji są rejestrowane centralnie w konfiguracji Doctrine Migrations.
-- Generowanie diffu jest targetowane namespace'em kontekstu, ale wykonanie `doctrine:migrations:migrate` obejmuje wspólny zestaw wszystkich zarejestrowanych, oczekujących migracji. Nazwy targetów `migrations-migrate-client` i `migrations-migrate-user` nie oznaczają izolowanego wykonania tylko jednego BC.
+- Zakres generowania i wykonania migracji przez Makefile opisuje [README](../README.md#dev-setup).
 
-### 9.4 Pessimistic row locking zaproszeń
-- `accept`, `reject` i `revoke` działają w jednej krótkiej transakcji requestowej otwieranej przez `CommandBus`. Repository pobiera `ClientInvitation` przez ORM z `LockMode::PESSIMISTIC_WRITE` (`SELECT ... FOR UPDATE`) jako pierwsze załadowanie agregatu do UnitOfWork. Agregat nie ma technicznej wersji.
-- Warunek pierwszego załadowania jest istotny dla `getForClient()` i `getPendingForClientAndEmail()`: DQL z `setLockMode()` blokuje wiersz, ale nie odświeża encji obecnej już w identity map (w odróżnieniu od `find()` z blokadą w `get()`). Dodanie wcześniejszego odczytu ORM wymaga ponownego sprawdzenia świeżości stanu i kontraktu platformowego revoke; samo uzyskanie blokady nie gwarantuje odświeżenia obiektu.
-- Blokada wiersza obowiązuje do commit/rollback. Konkurencyjny request czeka, a po uzyskaniu blokady widzi zatwierdzony stan. Istniejąca reguła `assertPending()` odrzuca niedozwolone przejście przez `ClientInvitationNotPendingException`, mapowany na `409 {"error": "Invitation is not pending"}`.
-- Platformowe revoke pobiera jednym blokującym zapytaniem ORM zaproszenie dla klienta, znormalizowanego e-maila i statusu `pending`. Jeśli po oczekiwaniu wiersz nie spełnia już tego warunku, brak pending invitation daje 404, tak samo jak wcześniejszy accept/reject/revoke.
-- Częściowy unikalny indeks `(client_id, email) WHERE status = 'pending'` nadal chroni równoległe tworzenie zaproszeń: przy INSERT nie ma jeszcze wiersza do zablokowania. Unikalny constraint członkostwa `(client_id, user_id)` pozostaje dodatkowym zabezpieczeniem. Obsługa `UniqueConstraintViolationException` przy accept jest defensywnym fallbackiem; ta gałąź mapowania HTTP nie ma dedykowanego testu. Obecnie poza accept członkostwo tworzy wyłącznie fixture/testowy `CreateClientMemberCommand`.
-- `ClientInvitationConcurrencyIntegrationTest` potwierdza blokadę dla wszystkich trzech mutujących odczytów repository: drugie niezależne połączenie wykonuje `FOR UPDATE NOWAIT` i otrzymuje SQLSTATE `55P03` (`lock_not_available`); po rollback blokada jest zwolniona. Testy domenowe i Behat chronią reguły przejść oraz kontrakty HTTP.
+### 9.4 Blokowanie agregatów i świeżość stanu
+- Mutacje wymagające serializacji przejść stanu muszą odczytać świeży agregat z blokadą w krótkiej transakcji `CommandBus`. W Demo `ClientInvitationRepository` używa ORM `LockMode::PESSIMISTIC_WRITE` (`SELECT ... FOR UPDATE`) jako pierwszego załadowania agregatu do UnitOfWork.
+- Blokada trwa do commit/rollback. Konkurencyjna operacja czeka; po uzyskaniu blokady reguła domenowa ocenia zatwierdzony stan. Sama blokada nie zastępuje walidacji przejścia.
+- Uwaga na identity map Doctrine: DQL z `setLockMode()` blokuje wiersz, ale nie odświeża encji już obecnej w UnitOfWork. Dotyczy to `getForClient()` i `getPendingForClientAndEmail()`, w odróżnieniu od blokującego `find()` w `get()`. Wcześniejszy odczyt ORM wymaga ponownego sprawdzenia świeżości stanu i kontraktu operacji; samo uzyskanie blokady nie gwarantuje odświeżenia obiektu.
+- Blokada istniejącego wiersza nie chroni równoległego tworzenia: przed INSERT nie ma wiersza do zablokowania. Ograniczenia unikalności w DB pozostają wymaganym zabezpieczeniem niezmienników, obok walidacji domenowej.
+- Zastosowanie do zaproszeń, indeksy i konsekwencje HTTP: [platform.md §4.2](platform.md#42-invitation-acceptance-and-concurrency).
 
 ## 10. DI i konfiguracja
 - `app/config/services.yaml` jest rootem konfiguracji usług: importuje konwencyjny autoload oraz konfiguracje Infrastructure poszczególnych modułów.
@@ -276,50 +255,24 @@ Każdy katalog pierwszego poziomu `app/src/{BC}/`, z wyjątkiem `SharedKernel`, 
 - Ręczny alias albo definicja są uzasadnione, gdy konwencja nie wystarcza: potrzebny jest jawny wybór implementacji, locator/iterator tagowanych usług, specjalny argument lub parametr środowiska, dekorator albo inna konfiguracja niewyrażalna samym wzorcem autoload.
 - Nie robimy `public: true` tylko pod testy.
 
-## 11. Platform routes (konwencja `platform_`)
-- Route-name z prefiksem `platform_` jest zarezerwowany dla platform-only endpointów.
-- Platform routes:
-  - nie wymagają `active_client_id` w sesji.
-  - `TenantGuardSubscriber`: pomija tenant checks dla route-name `platform_*` (po cross-origin checks).
-  - `PlatformAdminGuardSubscriber`: wymusza `session.is_platform_admin === true`; w przeciwnym razie 403.
-- Flaga `session.is_platform_admin` ustawiana po udanym loginie (`PlatformAdminOnLoginSubscriber`) na podstawie allowlisty `app.platform_admin_emails`.
-- Test architektoniczny (`PlatformRouteNamingTest`) pilnuje, że żaden route nie zawiera substring "platform" bez prefiksu `platform_`.
+## 11. Trasy platformowe (konwencja `platform_`)
+- Route-name z prefiksem `platform_` jest zarezerwowany dla endpointów platformowych. Żadna inna trasa nie może zawierać substringu `platform`; konwencję wymusza `PlatformRouteNamingTest`.
+- Uprawnienia platformowe są oddzielone od członkostwa i roli w kliencie. Trasy platformowe wymagają administratora platformy, ale nie wymagają aktywnego klienta (`active_client_id`).
+- `TenantGuardSubscriber` i `PlatformAdminGuardSubscriber` egzekwują ten podział. Wyjątek platformowy od kontroli tenantowych nie zwalnia z kontroli cross-origin.
+- Dostęp do tras tenantowych jest jawnie konfigurowany; brak dopasowanej reguły oznacza odmowę (default deny).
+- Stany sesji, źródło uprawnień i kolejność kontroli: [platform.md §2](platform.md#2-sessions-and-access-control).
 
-Stany sesji i wybór aktywnego klienta:
-- Anonimowa (brak `user_id`): dostępne są tylko trasy z allowlisty `TenantGuardSubscriber` (`api_auth_otp_request`, `api_auth_otp_verify`, `/api/health`). Pozostałe trasy objęte guardem zwracają 401, trasy `platform_*` — 403.
-- Zalogowana bez aktywnego klienta: udany `POST /api/auth/otp/verify` migruje identyfikator sesji, ustawia `user_id` i `is_platform_admin`, a usuwa `active_client_id` pozostały z wcześniejszego logowania w tej sesji. Login nigdy nie wybiera klienta i nie wymaga członkostwa. Dostępne są trasy z `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` (`api_me_clients_list`, `api_session_active_client_select`, `api_me_invitations_list`, `api_invitations_accept`, `api_invitations_reject`) oraz trasy `platform_*` dla administratora platformy. Trasa tenantowa zwraca `403 {"error": "active_client_required"}`.
-- Zalogowana z aktywnym klientem: `POST /api/session/active-client` ustawia `active_client_id` wyłącznie dla aktywnego członkostwa użytkownika i migruje identyfikator sesji. Kolejne wywołanie przełącza klienta; odrzucony wybór pozostawia dotychczasowy stan sesji. Udane `POST /api/invitations/{invitationId}/accept` również ustawia klienta zaproszenia jako aktywnego i migruje sesję, ale dopiero po commit; odrzucony accept nie zmienia sesji. Trasy tenantowe przechodzą dalsze kontrole guarda (§11.1).
-
-### 11.1 Aktualna powierzchnia HTTP/API
-- Routing aplikacji ładuje kontrolery z `app/src/**/Ui/Http/Api/` i dodaje prefix `/api`.
-- Aktualne kontrolery HTTP zwracają JSON. Repozytorium nie zawiera runtime aplikacji przeglądarkowej, więc takiego konsumenta ani jego kontraktów nie zakładamy na podstawie materiałów zewnętrznych.
+### 11.1 Kontrakty HTTP i routingu
 - Publiczny kontrakt endpointu obejmuje ścieżkę, metodę HTTP, input, status odpowiedzi i payload JSON. Zmiana któregokolwiek z tych elementów jest zmianą publicznej powierzchni HTTP i wymaga jawnego zakresu zadania oraz aktualizacji testów zachowania.
 - Route name jest wewnętrznym kontraktem routingu i security, a nie częścią publicznego kontraktu HTTP. Nowe albo zmienione route names wymagają sprawdzenia prefiksu `platform_`, konfiguracji wymagań dostępu dla tras i allowlisty `TenantGuardSubscriber` oraz subscriberów reagujących na konkretną route.
-- Po uwzględnieniu wyjątków dla platformy i allowlisty `TenantGuardSubscriber` wymaga `user_id` istniejącego, niezablokowanego użytkownika. Trasy z `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` nie wymagają aktywnego klienta. Dla pozostałych guard wymaga `active_client_id`, zgodności `{clientId}` z trasy z aktywnym klientem i aktywnego członkostwa, a dopuszcza tylko trasy z `ADMIN_REQUIRED_ROUTE_NAMES`, wymagając roli administratora klienta. Pozostałe trasy objęte guardem kończą się odmową dostępu. Dodanie trasy dla zwykłego członka wymaga rozszerzenia konfiguracji i obsługi wymagań dostępu w guardzie.
-- Odmowy guarda zwracają `{"error": "Access denied"}` z kodem 401 albo 403. Jedynym rozróżnialnym przypadkiem jest brak aktywnego klienta na trasie tenantowej: `403 {"error": "active_client_required"}`.
-- Onboarding i zaproszenia administratorów (`Client/Ui/Http/Api/ClientController`, `PlatformAdminInvitationController`). Wszystkie trzy trasy mają prefiks `platform_`, wymagają administratora platformy i nie wymagają aktywnego klienta; anonim oraz użytkownik bez uprawnień platformowych otrzymują `403 {"error": "Access denied"}`. Niepoprawny input → `400 {"errors": [{"field": "...", "message": "..."}]}`. Adresy e-mail są normalizowane przez `Email`.
-  - `POST /api/clients` (`platform_clients_create`) z `{"name": "...", "adminEmail": "...", "description": "..."}` → `201 {"id": "<client uuid>"}`. `name` i poprawny `adminEmail` są wymagane, `description` jest opcjonalne. Brak `adminEmail`, pusty lub niepoprawny adres → 400 bez utworzenia klienta. `OnboardClientCommand` atomowo tworzy klienta i oczekujące zaproszenie z rolą `admin` (§9), bez konta użytkownika ani członkostwa. Powiadomienie wysyła worker; zaproszony użytkownik loguje się przez OTP i korzysta z listy oraz accept/reject z 5.2. Akceptacja nadaje rolę `admin` i po commit ustawia aktywnego klienta.
-  - `POST /api/clients/{clientId}/admin-invitations` (`platform_client_admin_invitations_create`) z `{"email": "..."}` → `201 {"id": "<invitation uuid>"}`. Tworzy zaproszenie z rolą `admin` do istniejącego klienta, również po odrzuceniu pierwszego zaproszenia lub utracie administratorów. Nieistniejący klient → `404 {"error": "Not found"}`; oczekujące zaproszenie dla tego klienta i e-maila, niezależnie od roli → `409 {"error": "A pending invitation for this email already exists"}`; istniejące aktywne lub zawieszone członkostwo → `409 {"error": "User is already a member of this client"}`. Reguły wspólnej fabryki zaproszeń pozostają takie same jak w flow tenantowym; roli nie podaje się w input.
-  - `POST /api/clients/{clientId}/admin-invitations/revoke` (`platform_client_admin_invitations_revoke`) z `{"email": "..."}` → 204 bez treści. Odwołuje wyłącznie oczekujące zaproszenie z rolą `admin` dla wskazanego klienta i e-maila. Brak oczekującego zaproszenia (także po wcześniejszym accept/reject/revoke) → `404 {"error": "Not found"}`; oczekujące zaproszenie z rolą `user` → `403 {"error": "Platform admin can revoke only invitations with role admin"}`. Późniejsza akceptacja odwołanego zaproszenia jest niemożliwa. Nie jest potrzebny identyfikator zaproszenia ani osobna lista platformowa. `{clientId}` niebędący UUID zapisanym małymi literami → 404 z routingu dla obu tras admin-invitations.
-  - Zaproszenia z rolą `admin` mogą być tworzone i odwoływane wyłącznie przez flow platformowe. Trasy tenantowe nadal pozwalają tworzyć i odwoływać tylko zaproszenia z rolą `user`. Recovery nie wymusza utrzymywania co najmniej jednego aktywnego administratora.
-- Endpointy sesji zalogowanego użytkownika (`User/Ui/Http/Api/ActiveClientController`):
-  - `GET /api/me/clients` (`api_me_clients_list`) → 200 z listą aktywnych członkostw użytkownika: `[{"clientId": "...", "clientName": "...", "roles": ["admin"]}]`. Zawieszone członkostwa nie są zwracane; użytkownik bez członkostw dostaje `[]`. API nigdy nie wybiera klienta automatycznie, również przy jednym elemencie listy.
-  - `POST /api/session/active-client` (`api_session_active_client_select`) z `{"clientId": "<uuid>"}` → 204 bez treści; w sesji zapisywany jest UUID małymi literami, zgodny z identyfikatorami z `GET /api/me/clients`. Klient bez aktywnego członkostwa użytkownika (obcy, zawieszony, nieistniejący) → `403 {"error": "Access denied"}`; `clientId` niebędący UUID → 400 z błędami walidacji.
-  - `POST /api/auth/otp/verify` zachowuje kontrakt `{"ok": true}` / `{"ok": false}`.
-- Zaproszenia do klienta (`Client/Ui/Http/Api/ClientInvitationController`). Członkostwo powstaje w produkcji wyłącznie przez akceptację zaproszenia; `CreateClientMemberCommand` nie ma trasy HTTP i służy fixture'om Behat.
-  - `POST /api/clients/{clientId}/invitations` (`api_client_invitations_create`, `ADMIN_REQUIRED_ROUTE_NAMES`) z `{"email": "...", "role": "user"}` → 201 `{"id": "<uuid>"}`. Rola inna niż `user` → `403 {"error": "Client admin can invite only with role user"}`; oczekujące zaproszenie dla tego klienta i e-maila → `409 {"error": "A pending invitation for this email already exists"}`; osoba z członkostwem w kliencie, aktywnym lub zawieszonym → `409 {"error": "User is already a member of this client"}`; niepoprawny input → 400. Zaproszenie nie tworzy konta użytkownika.
-  - `POST /api/clients/{clientId}/invitations/{invitationId}/revoke` (`api_client_invitations_revoke`, `ADMIN_REQUIRED_ROUTE_NAMES`) → 204. Zaproszenie nieistniejące lub innego klienta → `404 {"error": "Not found"}`; zaproszenie z rolą `admin` → `403 {"error": "Client admin can revoke only invitations with role user"}`; status inny niż `pending` → `409 {"error": "Invitation is not pending"}`.
-  - `GET /api/me/invitations` (`api_me_invitations_list`) → 200 `[{"id": "...", "clientId": "...", "clientName": "...", "role": "user", "createdAt": "..."}]`: wyłącznie oczekujące zaproszenia na e-mail zalogowanego użytkownika.
-  - `POST /api/invitations/{invitationId}/accept` (`api_invitations_accept`) → 204. W jednej transakcji zapisuje `accepted` i tworzy członkostwo z rolą zaproszenia przez `ClientMemberFactory`; po commit ustawia `active_client_id` (§11). Zaproszenie nieistniejące albo skierowane na inny e-mail → `404 {"error": "Not found"}`; status inny niż `pending` → `409 {"error": "Invitation is not pending"}`; członkostwo istniejące w chwili accept → `409 {"error": "User is already a member of this client"}`, zaproszenie pozostaje `pending`, a admin może je odwołać.
-  - `POST /api/invitations/{invitationId}/reject` (`api_invitations_reject`) → 204, bez członkostwa; odmowy 404/409 jak przy accept.
-  - Konkurencyjne accept, reject i tenantowe revoke są serializowane blokadą wiersza; status inny niż `pending` po uzyskaniu blokady → `409 {"error": "Invitation is not pending"}` (§9.4). `{invitationId}` niebędący UUID zapisanym małymi literami → 404 z routingu.
+- Katalog kontraktów: [platform.md §3](platform.md#3-httpapi-contracts).
 
 ## 12. Test strategy (minimum)
 - Domain unit: testujemy zachowanie agregatów z FakeOutside i deterministycznym czasem.
 - Integration: infrastruktura (DB, query DBAL, event log, mapping) ma sensowną automatyczną osłonę testową. Nie wymagamy osobnego testu mappingu dla każdego agregatu, jeśli mapping jest już realnie pokryty przez Behat lub inny test integracyjny przechodzący przez persist/flush/load. Dedykowany test mappingu dodajemy tylko wtedy, gdy mapping nie ma naturalnego pokrycia albo jest na tyle nietrywialny, że osobny test daje realną wartość.
 - E2E (Behat): przynajmniej jeden scenariusz “happy path” przez UI -> Application -> Domain -> Infrastructure.
 
-Testy w `app/tests/Architecture/BoundedContextDependenciesTest.php` uruchamiają Deptrac na tymczasowej kopii źródeł z niezmienionym `app/deptrac.php`. Sprawdzają aktualne adaptery, dozwolony dostęp Infrastructure do obcych Query/Command/DTO oraz subscriberów do obcych IntegrationEvent, odrzucanie pozostałych zależności cross-BC i nazw niezgodnych z konwencją oraz ograniczenia Outside i SharedKernel. Sztucznie dodany BC automatycznie otrzymuje ten sam kontrakt: może udostępniać i konsumować publiczne kontrakty, a niedozwolone zależności są odrzucane. Testy, `make deptrac-ci` oraz `composer deptrac:ci` używają `--report-uncovered --fail-on-uncovered`, więc niepokryte zależności powodują błąd kontroli.
+Testy w `app/tests/Architecture/BoundedContextDependenciesTest.php` uruchamiają Deptrac na tymczasowej kopii źródeł z niezmienionym `app/deptrac.php`. Sprawdzają aktualne adaptery, dozwolony dostęp Infrastructure do obcych Query/Command/DTO oraz subscriberów do obcych IntegrationEvent, odrzucanie pozostałych zależności cross-BC i nazw niezgodnych z konwencją oraz ograniczenia Outside i SharedKernel. Sztucznie dodany BC automatycznie otrzymuje ten sam kontrakt: może udostępniać i konsumować publiczne kontrakty, a niedozwolone zależności są odrzucane. Niepokryte zależności muszą powodować błąd kontroli Deptrac (`--report-uncovered --fail-on-uncovered`).
 
 ### 12.1 Behat conventions (KISS)
 - Scenariusze używają aliasów (czytelnych nazw), nie surowych UUID.
@@ -330,22 +283,3 @@ Testy w `app/tests/Architecture/BoundedContextDependenciesTest.php` uruchamiają
 - Dla współdzielonych “Given” używamy:
   - `FixtureContext` (wspólne kroki aranżacji stanu)
   - `FixtureRegistry` (mapowanie alias -> fixture/Id)
-
-
-## 13. Quality gates (przed merge)
-Używamy komend z `Makefile` w głównym katalogu.
-- `make cs-check`
-- `make phpstan`
-- `make deptrac-ci`
-- `make test`
-- `make behat` (jeśli dotyczy UI / flow E2E)
-
-Bramki dobrane do zakresu uruchamiamy pojedynczo, w powyższej kolejności, czekając na pełny wynik i exit code przed startem kolejnej. Po błędzie zatrzymujemy sekwencję, naprawiamy problem i ponawiamy właściwe bramki. `make qa` uruchamia sekwencyjnie tylko `cs-check`, `phpstan` i `deptrac-ci`; nie zastępuje `make test` ani `make behat`.
-
-Dla zmian wyłącznie dokumentacyjnych, jeśli zadanie nie wymaga więcej, minimalną kontrolą jest `git diff --check`. Repo nie definiuje osobnego targetu do walidacji dokumentacji.
-
-## 14. Flow pracy (jak działamy)
-1. Omawiamy case biznesowy i granice BC.
-2. Spisujemy decyzje i konsekwencje w krótkiej notatce.
-3. Z notatki robimy backlog kroków implementacyjnych.
-4. Na końcu prompt dla agenta CLI ma wdrożyć dokładnie ustalenia i przejść quality gates.
