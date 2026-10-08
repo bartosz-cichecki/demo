@@ -240,7 +240,7 @@ Every first-level directory `app/src/{BC}/`, except `SharedKernel`, is automatic
 ### 9.3 Migrations
 - Migrations belong to the schema owner and are stored in `app/src/{BC}/Infrastructure/Resource/Migrations/`; migrations for shared mechanisms belong to `SharedKernel`.
 - Migration namespaces are registered centrally in the Doctrine Migrations configuration.
-- The scope of migration generation and execution through the Makefile is described in the [README](../README.md#dev-setup).
+- The scope of migration generation and execution through the Makefile is described in the [contributor instructions](instructions-for-agents.md#21-migration-commands).
 
 ### 9.4 Aggregate locking and state freshness
 - Mutations requiring serialized state transitions must read a fresh aggregate under a lock in a short `CommandBus` transaction. In Demo, `ClientInvitationRepository` uses ORM `LockMode::PESSIMISTIC_WRITE` (`SELECT ... FOR UPDATE`) as the aggregate's first load into the UnitOfWork.

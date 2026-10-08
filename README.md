@@ -82,18 +82,27 @@ make deptrac-ci     # architecture boundaries
 
 `make smoke` checks the [platform health endpoints](docs/platform.md#1-scope-and-responsibilities).
 
-Run gates selected for the change scope in the order defined in [Quality gates](docs/instructions-for-agents.md#5-quality-gates). That section is the source of truth for gate sequencing, failure handling and documentation-only validation; the [workflow](docs/instructions-for-agents.md#2-workflow-and-pre-flight) applies to preparing changes.
+Contributor workflow, quality gates and migration commands: [contributor instructions](docs/instructions-for-agents.md).
 
-Migration diffs are targeted at a context namespace (`make migrations-diff-client` / `make migrations-diff-user`). Both `make migrations-migrate-client` and `make migrations-migrate-user` run `doctrine:migrations:migrate` across all registered pending migrations; their names do not mean execution is isolated to one BC. Migration ownership is defined in [architecture §9.3](docs/architecture.en.md#93-migrations).
+## Business capabilities
 
-## Business capabilities and key flows
+The aggregates model concrete business responsibilities:
 
-The [platform guide](docs/platform.md) is the source of truth for current aggregate behavior, session states, HTTP contracts and runtime details. It describes:
+- **Client** represents a tenant workspace, validates its name and prevents changes to its name or description while inactive.
+- **ClientMember** controls a user's roles and access within a tenant, allowing suspension and restoration without deleting the membership.
+- **ClientInvitation** makes membership depend on the invitee's consent and prevents duplicate pending invitations or inviting an existing member.
+- **User** provides one identity across tenants and requires an explicit reason when blocking an account.
+- **OtpChallenge** enables passwordless login with expiring, single-use codes and a limit on verification attempts.
 
-- [OTP login and the local demo mailbox](docs/platform.md#31-otp-login).
-- [Client onboarding and administrator recovery](docs/platform.md#32-onboarding-and-administrator-invitations).
-- [Selecting and switching the active client](docs/platform.md#33-active-client-selection).
-- [Invitations and membership by consent](docs/platform.md#34-client-invitations).
-- [Tenant and platform access control](docs/platform.md#2-sessions-and-access-control).
+## Key flows
 
-The [test coverage map](docs/platform.md#5-verification-coverage-and-limitations) links the Behat scenarios and integration tests for these flows, including membership suspension and asynchronous notifications.
+Each flow is backed by executable Behat scenarios:
+
+- **Client onboarding:** platform admin creates a workspace and invites its first administrator → invitee logs in and accepts → admin membership is granted — [client_onboarding.feature](app/tests/Behat/features/platform/client_onboarding.feature).
+- **OTP login:** request a code → read it from the demo mailbox → verify it → authenticated session with no active client — [user_registration.feature](app/tests/Behat/features/user/user_registration.feature).
+- **Client selection:** list active memberships → choose or switch the active tenant → access its resources — [active_client_selection.feature](app/tests/Behat/features/user/active_client_selection.feature).
+- **Membership by invitation:** tenant admin invites → asynchronous notification → OTP login → acceptance creates membership and selects the client — [client_invitation.feature](app/tests/Behat/features/client_invitation/client_invitation.feature).
+- **Membership suspension:** admin suspends a member → access is denied → unsuspending restores access while preserving the member record — [client_member_management.feature](app/tests/Behat/features/client_member/client_member_management.feature).
+- **Platform isolation:** a tenant user attempts to create a client → access is denied — [client_create_forbidden.feature](app/tests/Behat/features/tenant/client_create_forbidden.feature).
+
+Full HTTP contracts, session behavior and runtime details are documented in the [platform guide](docs/platform.md).
