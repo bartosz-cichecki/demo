@@ -154,7 +154,7 @@ Previously, both `ProvisionClientMemberCommandHandler` and `CreateClientMemberCo
 
 ### Notes
 
-Reuse the existing factory, Outside, query and exception. No separate policy or cross-BC dependency is needed for the membership read. Apply architecture §5.2, §6–6.1 and §11.1; retain the existing User provisioning boundary from §4.2.
+Reuse the existing factory, Outside, query and exception. No separate policy or cross-BC dependency is needed for the membership read. Apply architecture §5.2, §6–6.1 and §11.1; retain the cross-BC write boundary from architecture §4.2 (the provisioning flow described by this historical task was removed in 5.2).
 
 Implementation evidence: provision handler (removed in 5.2), [create handler](../app/src/Client/Application/ClientMember/Command/CreateClientMember/CreateClientMemberCommandHandler.php), [factory](../app/src/Client/Domain/ClientMember/Factory/ClientMemberFactory.php), [membership query](../app/src/Client/Infrastructure/ClientMember/ClientMemberQuery.php), and [unique-index migration](../app/src/Client/Infrastructure/Resource/Migrations/Version20260206120000.php).
 
@@ -194,7 +194,7 @@ Done when:
 
 - Behat covers: login without selection, listing clients (suspended memberships excluded), selection, switching, refused selection of a foreign or suspended membership, tenant route before selection (`active_client_required`), and login of a user without memberships.
 - Existing scenarios that assert `active_client_id` right after verify are rewritten to verify + select.
-- `docs/architecture.md` §11 and §11.1 describe the new session states and routes.
+- [Platform §2–3](platform.md#2-sessions-and-access-control) describes the session states and routes; architecture §11–11.1 retains the security and HTTP contract rules.
 
 Completion note (2026-09-28): `ActiveClientIdOnLoginSubscriber` and `ActiveClientIdResolverService` were removed. OTP verify migrates the session, sets `user_id` and clears any earlier `active_client_id`; it never selects a client and accepts users without memberships. The existing User ACL `ActiveMembershipsQuery` now also maps the client name (through `ClientQueryInterface`) and roles for `GET /api/me/clients`; `POST /api/session/active-client` reuses `MembershipForClientQueryInterface`, returns 204, stores the lowercase UUID and migrates the session, and answers 403 `Access denied` without changing the session for a foreign, suspended or unknown client (400 for a non-UUID). `TenantGuardSubscriber` checks the user before the active client, lets `ACTIVE_CLIENT_OPTIONAL_ROUTE_NAMES` pass, and returns `403 {"error": "active_client_required"}` from the `MISSING_CLIENT_ID` branch. Fixture sessions (`I am logged in as … in client …`) still arrange `active_client_id` directly; they model an earlier explicit selection, not login. All five quality gates passed sequentially (183 PHPUnit tests, 44 Behat scenarios).
 
@@ -207,7 +207,7 @@ Scope:
 - New `ClientInvitation` aggregate in Client: `clientId`, `email`, role (`user` or `admin`), status `pending` / `accepted` / `rejected` / `revoked`, timestamps. No expiry.
 - Invariants in `ClientInvitationFactory`, with facts from Outside (same pattern as membership uniqueness in item 4):
   - at most one pending invitation per `(clientId, email)`, backed by a partial unique index;
-  - refused when a user with that email already has a membership in the client, active or suspended. Outside reads the user through Client's own Infrastructure ACL (§4.1); no user means no membership.
+  - refused when a user with that email already has a membership in the client, active or suspended. Outside reads the user through Client's own Infrastructure ACL ([architecture §4.1](architecture.en.md#41-reading-data-from-another-context-acl)); no user means no membership.
   - Refusals map to HTTP 409.
 - `ClientInvitation` allows transitions only from `pending`. Repository reads use `PESSIMISTIC_WRITE` inside the short request transaction owned by `CommandBus`; concurrent requests wait and the domain rule evaluates the committed state after locking. Platform revoke queries only pending invitations and returns 404 if none remains.
 - Client admin (tenant routes, `ADMIN_REQUIRED_ROUTE_NAMES`): create an invitation with role `user` only, and revoke invitations with role `user`. Role `admin` is granted by invitation only from the platform (5.3); promotion of an accepted member stays with `PUT /api/clients/{clientId}/members/{userId}/roles`.
@@ -225,7 +225,7 @@ Done when:
 - Integration tests prove row locking for all mutating repository reads: a second independent connection uses `FOR UPDATE NOWAIT` and receives SQLSTATE `55P03` until the first transaction ends. Domain tests and Behat cover state-transition semantics and HTTP contracts.
 - Deptrac and `BoundedContextDependenciesTest` allow the new cross-BC subscriber and still reject other foreign imports; probes that reference `UserRegisteredIntegrationEvent` point to the invitation event.
 - No reference to the removed classes remains in `app/`, `docs/` or the README.
-- `docs/architecture.md` §4.2 no longer uses `UserProvisioningService` as its example; README `Key flows` reflects the new flow.
+- `docs/architecture.md` §4.2 no longer uses `UserProvisioningService` as its example; the [platform invitation flow](platform.md#43-invitation-notifications), linked from README, reflects the new flow.
 
 Completion note (2026-09-29; locking superseded by the review note below): `ClientInvitation` (Client) originally had status and `#[ORM\Version]`; `ClientInvitationFactory::createByClientAdmin()` refuses role `admin`, a second pending invitation (backed by the partial unique index `UNIQ_CLIENT_INVITATION_PENDING_CLIENT_EMAIL`) and a person with an active or suspended membership, using facts from `ClientInvitationOutside`. Client reads users through its own ACL port `UserAccountQueryInterface` (adapter over `UserQueryInterface`). `accept()` changes the invitation state and records `ClientInvitationAccepted`; `AcceptClientInvitationCommandHandler` then creates the membership through `ClientMemberFactory` in the same transaction; `revokeByClientAdmin()` refuses role `admin`. A request addressed to someone else's invitation answers 404, refused transitions and concurrent changes 409, and the active client is set only after commit. `ClientInvitationSaga` publishes `ClientInvitationCreatedIntegrationEvent`; `SendClientInvitationNotificationSubscriber` (User) writes one JSON line through `UserNotificationSenderServiceInterface`. Provisioning, `UpsertUserByEmailCommand`, the registration notification flow and the unused `requireActiveClientId()`/`SessionContext::activeClientId()` were removed; Behat fixtures create users with `LogInUserByEmailCommand`. Behat contexts of one suite now share one browser per scenario, so an OTP login in `UserContext` is visible to `ClientInvitationContext`. All five quality gates passed sequentially.
 
@@ -246,11 +246,11 @@ Scope:
 Done when:
 
 - Behat covers: platform creates a client with `adminEmail` → notification → OTP login → accept → admin of the new client; a missing `adminEmail` is rejected; the recovery route after a rejected first invitation; revoking a mistyped admin invitation, after which accepting it is refused, then inviting the correct email; a non-platform user calling any of these routes is refused.
-- The updated `platform_clients_create` contract is reflected in Behat and `docs/architecture.md` §11.1.
+- The updated `platform_clients_create` contract is reflected in Behat and [platform §3.2](platform.md#32-onboarding-and-administrator-invitations).
 
 Completion note (2026-10-02): `platform_clients_create` requires `adminEmail`. `OnboardClientCommand` creates the client and its first pending admin invitation in one `CommandBus` transaction, including EventLog and the notification outbox write. The existing notification → OTP → acceptance flow creates the admin membership and selects the client after commit. Platform-only routes invite another admin to an existing client and revoke a pending admin invitation by normalized email. They share the 5.2 factory invariants; tenant admins cannot create or revoke admin invitations. `CreateClientMemberCommand` remains a fixture/test tool, and `CreateClientCommand` is explicitly marked as a fixture/test tool. The last-active-admin invariant remains outside this iteration.
 
-Implementation evidence: [onboarding handler](../app/src/Client/Application/Client/Command/OnboardClient/OnboardClientCommandHandler.php), [platform invitation controller](../app/src/Client/Ui/Http/Api/PlatformAdminInvitationController.php), [factory](../app/src/Client/Domain/ClientInvitation/Factory/ClientInvitationFactory.php), and [aggregate](../app/src/Client/Domain/ClientInvitation/ClientInvitation.php). Verification at completion (2026-10-02): [platform Behat scenarios](../app/tests/Behat/features/platform/client_onboarding.feature) cover notification, OTP, acceptance, rejection recovery, revocation, validation and authorization; [atomicity integration test](../app/tests/Client/Application/Client/OnboardClientIntegrationTest.php) proves rollback after the real outbox write; [concurrency integration tests](../app/tests/Client/Infrastructure/ClientInvitation/ClientInvitationConcurrencyIntegrationTest.php) covered admin accept vs platform revoke in both directions; [domain tests](../app/tests/Client/Domain/ClientInvitation/) preserve invitation rules. Both architecture documents describe all three platform contracts in §11.1 and the transaction in §9. All five quality gates passed sequentially at that time: CS, PHPStan, Deptrac (zero violations/uncovered dependencies), PHPUnit (215 tests, 1173 assertions), and Behat (66 scenarios, 762 steps). The full suite also preserves the client selection, membership and invitation flows from 5.1–5.2.
+Implementation evidence: [onboarding handler](../app/src/Client/Application/Client/Command/OnboardClient/OnboardClientCommandHandler.php), [platform invitation controller](../app/src/Client/Ui/Http/Api/PlatformAdminInvitationController.php), [factory](../app/src/Client/Domain/ClientInvitation/Factory/ClientInvitationFactory.php), and [aggregate](../app/src/Client/Domain/ClientInvitation/ClientInvitation.php). Verification at completion (2026-10-02): [platform Behat scenarios](../app/tests/Behat/features/platform/client_onboarding.feature) cover notification, OTP, acceptance, rejection recovery, revocation, validation and authorization; [atomicity integration test](../app/tests/Client/Application/Client/OnboardClientIntegrationTest.php) proves rollback after the real outbox write; [concurrency integration tests](../app/tests/Client/Infrastructure/ClientInvitation/ClientInvitationConcurrencyIntegrationTest.php) covered admin accept vs platform revoke in both directions; [domain tests](../app/tests/Client/Domain/ClientInvitation/) preserve invitation rules. The three platform contracts and transaction details are now documented in [platform §3.2](platform.md#32-onboarding-and-administrator-invitations) and [§4.1](platform.md#41-client-onboarding); both architecture versions retain the corresponding rules in §9 and §11.1. All five quality gates passed sequentially at that time: CS, PHPStan, Deptrac (zero violations/uncovered dependencies), PHPUnit (215 tests, 1173 assertions), and Behat (66 scenarios, 762 steps). The full suite also preserves the client selection, membership and invitation flows from 5.1–5.2.
 
 Review follow-up (2026-10-04): the concurrency integration tests were replaced with `FOR UPDATE NOWAIT` checks for all three mutating repository reads, including platform revoke. Behat now explicitly checks platform revoke returning 404 after accept/reject/revoke. After this refactor all five quality gates passed sequentially: CS, PHPStan, Deptrac (zero violations/uncovered dependencies), PHPUnit (212 tests, 1086 assertions), and Behat (66 scenarios, 770 steps). These results supersede the historical counts above for the refactored implementation.
 
@@ -277,7 +277,7 @@ Status: `DONE`
 
 ### Why
 
-The diagram should help readers understand the main architecture flow without reading the full `docs/architecture` document first.
+The diagram should help readers understand the main architecture flow without reading the full [architecture document](architecture.en.md) first.
 
 ### Scope
 
@@ -334,7 +334,7 @@ The first screen of the README should immediately explain:
 
 ### Notes
 
-The current README already has a `Key flows` section based on real Behat scenarios. This task is polish and hierarchy improvement, not a full rewrite.
+The README links to the [platform flows and Behat coverage](platform.md#5-verification-coverage-and-limitations), previously described in its `Key flows` section. This task is polish and hierarchy improvement, not a full rewrite.
 
 ---
 

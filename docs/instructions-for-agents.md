@@ -2,12 +2,14 @@
 
 Purpose
 - This file defines working instructions for coding agents in this repository.
-- Architecture and system rules live in `docs/architecture.md` (the canonical source of truth).
-- `docs/architecture.en.md` is a faithful translation for English readers; if the documents conflict, `docs/architecture.md` wins.
+- Architectural rules live in [architecture.md](architecture.md) (the canonical source of truth).
+- [architecture.en.md](architecture.en.md) is a faithful translation for English readers; if the documents conflict, `docs/architecture.md` wins.
+- Current platform behavior, HTTP contracts and runtime details live in [platform.md](platform.md) (English only). Keep both architecture versions aligned when changing rules; update the platform guide when changing behavior.
 
 ## 1) Source of truth
 Before changing anything, read:
 - `docs/architecture.md`
+- Relevant sections of `docs/platform.md` when the task concerns platform behavior, HTTP contracts or runtime.
 
 Select the sections relevant to the task. Do not use plans, backlogs, temporary files, or external comparison material as evidence of current runtime behavior.
 
@@ -16,11 +18,12 @@ Select the sections relevant to the task. Do not use plans, backlogs, temporary 
 - Identify the affected bounded context, route/guard, use case, and domain invariants.
 - State measurable DONE criteria and the verification needed to prove them.
 - Determine the minimal diff (KISS).
+- For work requiring a design decision, discuss the business case and BC boundaries, capture decisions and consequences in a short note, derive implementation steps, then prepare the CLI agent prompt to implement the agreed scope and pass the relevant gates.
 
 2. Run a lightweight pre-flight before the first edit
 - Cross-BC: name the data or behavior owner. For reads, identify the consuming Infrastructure ACL and its own DTO. For writes, identify the consuming Application port and its Infrastructure adapter (`architecture.md` sections 4.1 and 4.2).
 - DI: check `app/config/services.autoload.yaml` and an existing analogy first. If manual config is needed, state why convention is insufficient and place module-specific details in `app/src/{BC}/Infrastructure/Resource/config.yaml` (`architecture.md` section 10).
-- Public HTTP surface: identify any affected route name, path, HTTP method, input, response status/payload, guard map/allowlist, route-specific subscriber, and behavior test (`architecture.md` sections 11 and 11.1).
+- Public HTTP surface: identify any affected route name, path, HTTP method, input, response status/payload, guard map/allowlist, route-specific subscriber, and behavior test ([architecture §11–11.1](architecture.en.md#11-platform-routes-platform_-convention) for rules; [platform §2–3](platform.md#2-sessions-and-access-control) for current access behavior and contracts).
 - Documentation-only work: identify the concrete code, configuration, test, Makefile, or deployment files that prove each changed rule.
 - If ownership, security, public API compatibility, or verification cannot be established without unsafe guessing, stop and ask for a decision.
 
@@ -61,16 +64,18 @@ Details are in `docs/architecture.md`.
 - Route names participate in security and must remain aligned with platform/tenant guards.
 
 ## 5) Quality gates
-Choose gates according to the scope and run them one at a time, from cheapest to most expensive:
+Use the root `Makefile` commands. Choose gates according to the scope and run them one at a time, from cheapest to most expensive:
 1. `make cs-check`
 2. `make phpstan`
 3. `make deptrac-ci`
 4. `make test`
-5. `make behat`
+5. `make behat` (for UI / E2E flow changes)
 
-Wait for the full result and exit code before starting the next gate. Stop on failure, fix the issue, and rerun the appropriate gates sequentially. `make qa` covers only the first three gates.
+Wait for the full result and exit code before starting the next gate. Stop on failure, fix the issue, and rerun the appropriate gates sequentially. `make qa` covers only the first three gates; it does not replace `make test` or `make behat`.
 
-For documentation-only changes, run `git diff --check`; do not run the full application suite unless the task or repository requirements call for it.
+`make deptrac-ci` and `composer deptrac:ci` use `--report-uncovered --fail-on-uncovered`, matching the architecture dependency tests.
+
+For documentation-only changes, run `git diff --check`; do not run the full application suite unless the task or repository requirements call for it. The repository has no dedicated documentation validation target.
 
 If Docker Compose is needed, use a Makefile target when one exists.
 
@@ -98,7 +103,7 @@ DONE criteria
 Task-specific risks or constraints
 - ...
 
-Do not repeat fixed repository rules or quality-gate lists in each task prompt; they remain in this file and `docs/architecture.md`.
+Do not repeat fixed repository rules or quality-gate lists in each task prompt; quality gates and workflow remain in this file, architectural rules in `docs/architecture.md`, and current behavior in `docs/platform.md`.
 
 ## 8) Commit message
 - Conventional Commits: `type(scope): description`
