@@ -30,7 +30,7 @@ This backlog is not a list of every tool that could be added to the repository. 
 | 5.2 | Client membership invitations | DONE | 2026-09-29 | 2026-09-29 | Membership requires user consent; async notification Client → User |
 | 5.3 | Client onboarding invites the first admin | DONE | 2026-10-02 | 2026-10-02 | Close the gap where only fixtures create client admins |
 | 6 | Architecture flow diagram | DONE | 2026-10-07 | 2026-10-07 | Show the main architecture flow in 30 seconds |
-| 7 | README first screen polish | TODO | 2026-04-30 | — | Explain quickly what the demo is and what it proves |
+| 7 | README first screen polish | DONE | 2026-10-09 | 2026-10-09 | Explain quickly what the demo is and what it proves |
 | 8 | Architecture Decision Records | TODO | 2026-04-30 | — | Show conscious decisions and trade-offs |
 | 9 | Repository hygiene | TODO | 2026-04-30 | — | Remove basic red flags from a public repository |
 | 10 | Dependabot | TODO | 2026-04-30 | — | Add automated dependency hygiene |
@@ -207,7 +207,7 @@ Scope:
 - New `ClientInvitation` aggregate in Client: `clientId`, `email`, role (`user` or `admin`), status `pending` / `accepted` / `rejected` / `revoked`, timestamps. No expiry.
 - Invariants in `ClientInvitationFactory`, with facts from Outside (same pattern as membership uniqueness in item 4):
   - at most one pending invitation per `(clientId, email)`, backed by a partial unique index;
-  - refused when a user with that email already has a membership in the client, active or suspended. Outside reads the user through Client's own Infrastructure ACL ([architecture §4.1](architecture.en.md#41-reading-data-from-another-context-acl)); no user means no membership.
+  - refused when a user with that email already has a membership in the client, active or suspended. Outside reads the user through Client's own Infrastructure ACL ([architecture §4.1](architecture.md#41-reading-data-from-another-context-acl)); no user means no membership.
   - Refusals map to HTTP 409.
 - `ClientInvitation` allows transitions only from `pending`. Repository reads use `PESSIMISTIC_WRITE` inside the short request transaction owned by `CommandBus`; concurrent requests wait and the domain rule evaluates the committed state after locking. Platform revoke queries only pending invitations and returns 404 if none remains.
 - Client admin (tenant routes, `ADMIN_REQUIRED_ROUTE_NAMES`): create an invitation with role `user` only, and revoke invitations with role `user`. Role `admin` is granted by invitation only from the platform (5.3); promotion of an accepted member stays with `PUT /api/clients/{clientId}/members/{userId}/roles`.
@@ -277,7 +277,7 @@ Status: `DONE`
 
 ### Why
 
-The diagram should help readers understand the main architecture flow without reading the full [architecture document](architecture.en.md) first.
+The diagram should help readers understand the main architecture flow without reading the full [architecture document](architecture.md) first.
 
 ### Scope
 
@@ -312,7 +312,7 @@ Completion note (2026-10-07): the final artifact is a pair of SVG files, [light]
 
 ## 7. README first screen polish
 
-Status: `TODO`
+Status: `DONE`
 
 ### Why
 
@@ -335,6 +335,12 @@ The first screen of the README should immediately explain:
 ### Notes
 
 The README contains short `Business capabilities` and `Key flows` sections with links to concrete Behat features; full contracts and coverage details live in the [platform guide](platform.md). This task is polish and hierarchy improvement, not a full rewrite.
+
+Completion note (2026-10-09): the [README](../README.md) now leads with the product, linked correctness evidence and Quick start, followed by the unchanged architecture diagram and a five-stop reviewer tour. The AI workflow example links item 5.2's completion note and the existing [prompt template](instructions-for-agents.md#7-prompt-template). The English [architecture](architecture.md) is canonical, with a full [Polish translation](architecture.pl.md); rule bodies and section numbering are unchanged. [Contributor instructions](instructions-for-agents.md) require English-first rule updates and the matching translation in the same commit, plus a §6 report in PR descriptions that distinguishes moved content from normative changes.
+
+Implementation evidence: [Makefile](../Makefile) adds `make demo`, reusing Behat's test database preparation for [onboarding](../app/tests/Behat/features/platform/client_onboarding.feature) and [invitation](../app/tests/Behat/features/client_invitation/client_invitation.feature) scenarios with `--format=pretty`. The [membership scenario](../app/tests/Behat/features/client_member/client_member_management.feature) verifies member listing before suspension (200), during suspension (403), and after unsuspension (200), plus status, role and membership count; the [platform coverage](platform.md#5-verification-coverage-and-limitations) and README describe that observation.
+
+Verification on a fresh local clone with no `vendor/` or runtime cache and a new PostgreSQL volume: `make up-build` → `make install` → `make smoke` → `make demo` all passed; demo created and migrated the test database and passed 27 scenarios / 377 steps. The subsequent `make behat` passed 62 scenarios / 729 steps. `make help` lists `demo`; `git diff --check` and relative-link/anchor checks passed. Quick start includes the Composer installation required by the dev image. PHP style, static analysis, Deptrac and PHPUnit were not rerun for this documentation and Gherkin scope.
 
 ---
 

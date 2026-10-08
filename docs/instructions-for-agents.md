@@ -3,8 +3,8 @@
 Purpose
 - This file defines working instructions for coding agents in this repository.
 - Architectural rules live in [architecture.md](architecture.md) (the canonical source of truth).
-- [architecture.en.md](architecture.en.md) is a faithful translation for English readers; if the documents conflict, `docs/architecture.md` wins.
-- Current platform behavior, HTTP contracts and runtime details live in [platform.md](platform.md) (English only). Keep both architecture versions aligned when changing rules; update the platform guide when changing behavior.
+- [architecture.pl.md](architecture.pl.md) is the full Polish translation; if the documents conflict, the English `docs/architecture.md` wins.
+- Current platform behavior, HTTP contracts and runtime details live in [platform.md](platform.md) (English only). Change architectural rules in the English version first, then apply the same changes to the Polish translation in the same commit; update the platform guide when changing behavior.
 
 ## 1) Source of truth
 Before changing anything, read:
@@ -23,7 +23,7 @@ Select the sections relevant to the task. Do not use plans, backlogs, temporary 
 2. Run a lightweight pre-flight before the first edit
 - Cross-BC: name the data or behavior owner. For reads, identify the consuming Infrastructure ACL and its own DTO. For writes, identify the consuming Application port and its Infrastructure adapter (`architecture.md` sections 4.1 and 4.2).
 - DI: check `app/config/services.autoload.yaml` and an existing analogy first. If manual config is needed, state why convention is insufficient and place module-specific details in `app/src/{BC}/Infrastructure/Resource/config.yaml` (`architecture.md` section 10).
-- Public HTTP surface: identify any affected route name, path, HTTP method, input, response status/payload, guard map/allowlist, route-specific subscriber, and behavior test ([architecture §11–11.1](architecture.en.md#11-platform-routes-platform_-convention) for rules; [platform §2–3](platform.md#2-sessions-and-access-control) for current access behavior and contracts).
+- Public HTTP surface: identify any affected route name, path, HTTP method, input, response status/payload, guard map/allowlist, route-specific subscriber, and behavior test ([architecture §11–11.1](architecture.md#11-platform-routes-platform_-convention) for rules; [platform §2–3](platform.md#2-sessions-and-access-control) for current access behavior and contracts).
 - Documentation-only work: identify the concrete code, configuration, test, Makefile, or deployment files that prove each changed rule.
 - If ownership, security, public API compatibility, or verification cannot be established without unsafe guessing, stop and ask for a decision.
 
@@ -46,7 +46,7 @@ Select the sections relevant to the task. Do not use plans, backlogs, temporary 
 
 ### 2.1 Migration commands
 
-Migration diffs are targeted at a context namespace (`make migrations-diff-client` / `make migrations-diff-user`). Both `make migrations-migrate-client` and `make migrations-migrate-user` run `doctrine:migrations:migrate` across all registered pending migrations; their names do not mean execution is isolated to one BC. Migration ownership is defined in [architecture §9.3](architecture.en.md#93-migrations).
+Migration diffs are targeted at a context namespace (`make migrations-diff-client` / `make migrations-diff-user`). Both `make migrations-migrate-client` and `make migrations-migrate-user` run `doctrine:migrations:migrate` across all registered pending migrations; their names do not mean execution is isolated to one BC. Migration ownership is defined in [architecture §9.3](architecture.md#93-migrations).
 
 ## 3) Hard guardrails
 - Do not change architecture or the public HTTP surface unless the prompt explicitly requires it.
@@ -112,6 +112,7 @@ Do not repeat fixed repository rules or quality-gate lists in each task prompt; 
 ## 8) Commit message
 - Conventional Commits: `type(scope): description`
 - Short and in English.
+- Pull request descriptions include the report from §6 and explicitly separate moved content from normative changes.
 
 Examples:
 - `feat(user): harden otp rate limiting`
