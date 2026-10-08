@@ -1,4 +1,4 @@
-.PHONY: help install cs-check cs-fix phpstan deptrac deptrac-ci shell qa qa-fix test behat \
+.PHONY: help install cs-check cs-fix phpstan deptrac deptrac-ci shell qa qa-fix test behat demo \
         up-prod up-prod-build down-prod logs-prod shell-prod \
         db-validate db-create db-drop migrations-status migrations-migrate-test migrations-diff-client migrations-migrate-client \
         migrations-diff-user migrations-migrate-user
@@ -84,6 +84,10 @@ test: ## Run PHPUnit tests
 behat: ## Run Behat tests
 	$(MAKE) migrations-migrate-test
 	$(EXEC_PHP) sh -lc 'cd /var/www/app && vendor/bin/behat -c behat.yml'
+
+demo: ## Run onboarding and invitation business flows (Behat pretty output)
+	$(MAKE) migrations-migrate-test
+	$(EXEC_PHP) sh -lc 'cd /var/www/app && vendor/bin/behat -c behat.yml --format=pretty tests/Behat/features/platform/client_onboarding.feature tests/Behat/features/client_invitation/client_invitation.feature'
 
 # Pseudo-prod targets
 up-prod: ## Start pseudo-prod containers (no rebuild)

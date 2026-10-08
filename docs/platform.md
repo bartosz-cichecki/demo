@@ -1,6 +1,6 @@
 # Demo platform
 
-This document describes the current platform behavior, HTTP/API contracts and runtime implementation. Architectural rules and guarantees live in the canonical Polish [architecture.md](architecture.md) and its full [English translation](architecture.en.md). Workflow, migration commands and quality gates live in the [contributor instructions](instructions-for-agents.md). Historical plans in [backlog.md](backlog.md) are not a runtime specification.
+This document describes the current platform behavior, HTTP/API contracts and runtime implementation. Architectural rules and guarantees live in the canonical English [architecture.md](architecture.md) and its full [Polish translation](architecture.pl.md). Workflow, migration commands and quality gates live in the [contributor instructions](instructions-for-agents.md). Historical plans in [backlog.md](backlog.md) are not a runtime specification.
 
 ## 1. Scope and responsibilities
 
@@ -16,7 +16,7 @@ The aggregates support these capabilities:
 - `User`: validates email; blocking requires a non-empty reason. One identity can belong to multiple tenants.
 - `OtpChallenge`: the database stores only a code hash; a challenge expires after 10 minutes, can be consumed once and permits at most five failed verification attempts.
 
-The MVP does not store user timezone preferences. Timestamps remain UTC in the backend and read models; local presentation belongs to the UI/browser, under the [time rules](architecture.en.md#62-time-in-the-domain-hard-rule).
+The MVP does not store user timezone preferences. Timestamps remain UTC in the backend and read models; local presentation belongs to the UI/browser, under the [time rules](architecture.md#62-time-in-the-domain-hard-rule).
 
 ## 2. Sessions and access control
 
@@ -37,7 +37,7 @@ Session states and active client selection (assuming cross-origin checks pass):
 
 ## 3. HTTP/API contracts
 
-The following contracts cover authentication, session selection, onboarding and invitations. Access checks from [§2](#2-sessions-and-access-control) apply before controller behavior. Contract change rules remain in [architecture §11.1](architecture.en.md#111-http-and-routing-contracts).
+The following contracts cover authentication, session selection, onboarding and invitations. Access checks from [§2](#2-sessions-and-access-control) apply before controller behavior. Contract change rules remain in [architecture §11.1](architecture.md#111-http-and-routing-contracts).
 
 ### 3.1 OTP login
 
@@ -78,7 +78,7 @@ Client invitations ([ClientInvitationController](../app/src/Client/Ui/Http/Api/C
 
 ## 4. Flows and implementation
 
-The following details apply the [transaction](architecture.en.md#9-transactions-and-flush-one-point), [outbox](architecture.en.md#92-outbox-and-async-consumption-guarantees) and [locking](architecture.en.md#94-aggregate-locking-and-state-freshness) rules to the current platform.
+The following details apply the [transaction](architecture.md#9-transactions-and-flush-one-point), [outbox](architecture.md#92-outbox-and-async-consumption-guarantees) and [locking](architecture.md#94-aggregate-locking-and-state-freshness) rules to the current platform.
 
 ### 4.1 Client onboarding
 
@@ -97,7 +97,7 @@ The platform admin supplies the client's name and first administrator's email. A
 - Platform revoke uses one locking ORM query to load an invitation by client, normalized email and `pending` status. If the row no longer matches after waiting, the missing pending invitation results in 404, just as after an earlier accept/reject/revoke.
 - The partial unique index `(client_id, email) WHERE status = 'pending'` still protects concurrent invitation creation: there is no row to lock before INSERT. The unique membership constraint `(client_id, user_id)` remains an additional safeguard.
 
-The first-load/identity-map requirement is defined in [architecture §9.4](architecture.en.md#94-aggregate-locking-and-state-freshness). Adding an earlier ORM load also requires checking the platform revoke contract: it selects by pending status, while the other transitions validate status in the aggregate. Session changes happen only after the acceptance command commits.
+The first-load/identity-map requirement is defined in [architecture §9.4](architecture.md#94-aggregate-locking-and-state-freshness). Adding an earlier ORM load also requires checking the platform revoke contract: it selects by pending status, while the other transitions validate status in the aggregate. Session changes happen only after the acceptance command commits.
 
 ### 4.3 Invitation notifications
 
@@ -134,9 +134,9 @@ Paths above are relative to the application directory (`app/` in the repository)
   - no dead letter queue
   - the worker uses polling instead of a wake-up signal
 
-The worker stores at most 500 characters in `last_error`. Lease expiry applies to both outbox and consumption claims. An event without matching handlers is marked processed. Subscriber registration and method conventions are defined in [architecture §8.1](architecture.en.md#81-integration-events-contract).
+The worker stores at most 500 characters in `last_error`. Lease expiry applies to both outbox and consumption claims. An event without matching handlers is marked processed. Subscriber registration and method conventions are defined in [architecture §8.1](architecture.md#81-integration-events-contract).
 
-Implementation: [publisher](../app/src/SharedKernel/Infrastructure/IntegrationEvent/DbalOutboxPublisher.php), [worker](../app/src/SharedKernel/Ui/ConsoleCommands/ProcessOutboxCommand.php). The limits above bound automatic retries; external side effects still require the [architectural idempotency guarantee](architecture.en.md#92-outbox-and-async-consumption-guarantees).
+Implementation: [publisher](../app/src/SharedKernel/Infrastructure/IntegrationEvent/DbalOutboxPublisher.php), [worker](../app/src/SharedKernel/Ui/ConsoleCommands/ProcessOutboxCommand.php). The limits above bound automatic retries; external side effects still require the [architectural idempotency guarantee](architecture.md#92-outbox-and-async-consumption-guarantees).
 
 ## 5. Verification coverage and limitations
 
@@ -147,4 +147,4 @@ These are descriptions of the checked-in tests, not results of a fresh suite run
 - [Invitation domain tests](../app/tests/Client/Domain/ClientInvitation/) cover refused transitions from terminal states. [Invitation Behat scenarios](../app/tests/Behat/features/client_invitation/client_invitation.feature) cover notification → OTP → acceptance, rejection, revocation, duplicates, existing memberships and authorization; [platform scenarios](../app/tests/Behat/features/platform/client_onboarding.feature) cover onboarding and recovery, including revoke returning 404 without a pending invitation.
 - Acceptance maps `UniqueConstraintViolationException` to the existing-membership 409 as a defensive fallback. That HTTP mapping branch has no dedicated test; the existing-membership domain refusal is covered by Behat.
 - [ClientInvitationNotificationIntegrationTest](../app/tests/Client/Application/ClientInvitation/ClientInvitationNotificationIntegrationTest.php) simulates redelivery after a crash and checks that the local notification is not duplicated. [ProcessOutboxCommandTest](../app/tests/SharedKernel/Ui/ConsoleCommands/ProcessOutboxCommandTest.php) covers claims, retries, completed consumption, absent handlers and ownership loss.
-- [OTP scenarios](../app/tests/Behat/features/user/user_registration.feature) and [active-client scenarios](../app/tests/Behat/features/user/active_client_selection.feature) cover login and session selection. [Membership scenarios](../app/tests/Behat/features/client_member/client_member_management.feature) cover suspend/unsuspend while preserving the member record. [Tenant authorization](../app/tests/Behat/features/tenant/client_create_forbidden.feature) covers denied platform client creation.
+- [OTP scenarios](../app/tests/Behat/features/user/user_registration.feature) and [active-client scenarios](../app/tests/Behat/features/user/active_client_selection.feature) cover login and session selection. [Membership scenarios](../app/tests/Behat/features/client_member/client_member_management.feature) cover an admin suspending and unsuspending another admin: member listing returns 200 before suspension, 403 with `Access denied` while suspended, and 200 after restoration; the membership remains active with its admin role and the member count is unchanged. [Tenant authorization](../app/tests/Behat/features/tenant/client_create_forbidden.feature) covers denied platform client creation.
